@@ -2,7 +2,7 @@
  * Identification Controller — Animal Identification Bot
  *
  * Handles the full pipeline:
- *   Gemini AI → GBIF verification → eBird verification → iNaturalist photo
+ *   Gemini AI → GBIF verification → eBird verification → iNaturalist photo good
  */
 const geminiService = require('../services/geminiService');
 const { verifyWithGBIF } = require('../services/gbifService');
