@@ -19,7 +19,7 @@ function saveRateLimitStore(store) {
 
 function resetIfNeeded(store) {
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore' }).format(now);
   if (store.lastReset !== today) {
     store.users = {};
     store.groups = {};
@@ -440,12 +440,37 @@ module.exports = function registerIdentify(bot) {
         }
         return;
       } else if (!hasActiveSession) {
-        // No active session: keep group images untouched, ignore silently.
+        // No active session: in private chat, continue and ask for location.
+        // In groups, keep existing guard behavior to avoid accidental spam.
         const chatType = msg.chat?.type;
         const isGroupChat = chatType === 'group' || chatType === 'supergroup';
         if (!isGroupChat) {
-          await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+          let sessionState = null;
+          try {
+            sessionState = await ensureActiveSessionRecord(msg.chat, msg.from);
+          } catch {
+            // Non-blocking: still continue with identification flow.
+          }
+
+          await requestLocationAndQueue(
+            bot,
+            chatId,
+            {
+              buffer: enhanced,
+              mimeType: 'image/jpeg',
+              inputFileId,
+              imageCapturedAt,
+              isNight: nightLow.isNight,
+              isLowLight: nightLow.isLowLight,
+              visualQuestion: (msg.caption || '').trim(),
+              sessionId: sessionState?.sessionId || '',
+            },
+            msg.from,
+            msg.chat
+          );
+          return;
         }
+
         return;
       } else {
         const activeBySheet = await hasActiveSessionBySheet(msg.chat, msg.from);
@@ -530,12 +555,37 @@ module.exports = function registerIdentify(bot) {
         }
         return;
       } else if (!hasActiveSession) {
-        // No active session: keep group images untouched, ignore silently.
+        // No active session: in private chat, continue and ask for location.
+        // In groups, keep existing guard behavior to avoid accidental spam.
         const chatType = msg.chat?.type;
         const isGroupChat = chatType === 'group' || chatType === 'supergroup';
         if (!isGroupChat) {
-          await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+          let sessionState = null;
+          try {
+            sessionState = await ensureActiveSessionRecord(msg.chat, msg.from);
+          } catch {
+            // Non-blocking: still continue with identification flow.
+          }
+
+          await requestLocationAndQueue(
+            bot,
+            chatId,
+            {
+              buffer,
+              mimeType,
+              inputFileId,
+              imageCapturedAt,
+              isNight: nightLow.isNight,
+              isLowLight: nightLow.isLowLight,
+              visualQuestion: (msg.caption || '').trim(),
+              sessionId: sessionState?.sessionId || '',
+            },
+            msg.from,
+            msg.chat
+          );
+          return;
         }
+
         return;
       } else {
         const activeBySheet = await hasActiveSessionBySheet(msg.chat, msg.from);

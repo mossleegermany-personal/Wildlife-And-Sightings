@@ -68,6 +68,19 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function normalizeSgTimeLabel(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '—';
+  if (/\bSST\b/i.test(raw)) {
+    const stripped = raw.replace(/\s*SST\b/ig, '').trim();
+    const hhmm = stripped.match(/^(\d{1,2}:\d{2})/);
+    return hhmm ? `${hhmm[1]} hrs` : stripped;
+  }
+  const hhmmMatch = raw.match(/^(\d{1,2}:\d{2})/);
+  if (hhmmMatch) return `${hhmmMatch[1]} hrs`;
+  return raw;
+}
+
 function buildRecordDeepLink(globalIdx) {
   const username = String(cachedBotUsername || '').replace(/^@/, '').trim();
   if (!username) return '';
@@ -83,7 +96,7 @@ function buildPageText(pageRows, page, totalPages, isGroup, searchTerm) {
   pageRows.forEach((row, i) => {
     const num       = (page - 1) * PAGE_SIZE + i + 1;
     const dateV     = row[6] || '—';
-    const timeV     = row[7] || '—';
+    const timeV     = normalizeSgTimeLabel(row[7] || '—');
     const country   = row[8] || '';
     const species   = row[9] || '—';
     const user      = isGroup ? (row[3] || '') : '';

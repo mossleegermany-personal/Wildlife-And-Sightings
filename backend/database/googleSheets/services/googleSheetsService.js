@@ -17,6 +17,25 @@ const SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
 ];
 
+function getSingaporeDateTimeParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Singapore',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return {
+    date: `${map.day}/${map.month}/${map.year}`,
+    time: `${map.hour}:${map.minute}:${map.second} hrs`,
+  };
+}
+
 class GoogleSheetsService {
   constructor() {
     this._auth = null;
@@ -81,14 +100,7 @@ class GoogleSheetsService {
 
     const sn = await this.getNextSerialNumber();
 
-    const now = new Date();
-    const dd   = String(now.getDate()).padStart(2, '0');
-    const mm   = String(now.getMonth() + 1).padStart(2, '0');
-    const yyyy = now.getFullYear();
-    const hh   = String(now.getHours()).padStart(2, '0');
-    const min  = String(now.getMinutes()).padStart(2, '0');
-    const date = `${dd}/${mm}/${yyyy}`;
-    const time = `${hh}:${min} hrs`;
+    const { date, time } = getSingaporeDateTimeParts(new Date());
 
     const personDisplayName = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
     const normalizedChatType = String(chatType || '').trim().toLowerCase();
@@ -374,9 +386,15 @@ class GoogleSheetsService {
 
     const formatTime = (date) => {
       if (!date) return '';
-      const hh = String(date.getHours()).padStart(2, '0');
-      const mm = String(date.getMinutes()).padStart(2, '0');
-      return `${hh}:${mm} hrs`;
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Singapore',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).formatToParts(date);
+      const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+      return `${map.hour}:${map.minute}:${map.second} hrs`;
     };
 
     const sender = data.chatTitle
@@ -426,9 +444,15 @@ class GoogleSheetsService {
 
     const formatTime = (date) => {
       if (!date) return '';
-      const hh = String(date.getHours()).padStart(2, '0');
-      const mm = String(date.getMinutes()).padStart(2, '0');
-      return `${hh}:${mm} hrs`;
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Singapore',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).formatToParts(date);
+      const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+      return `${map.hour}:${map.minute}:${map.second} hrs`;
     };
 
     try {
