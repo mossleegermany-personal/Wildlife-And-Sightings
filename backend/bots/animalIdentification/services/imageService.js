@@ -6,12 +6,42 @@
  * info panel on the right with the key identification details.
  */
 const sharp = require('sharp');
+const fs = require('node:fs');
+const path = require('node:path');
 const logger = require('../../../src/utils/logger');
 
 const PANEL_WIDTH = 400;
 const IMAGE_HEIGHT = 400;
 const COMPOSITE_WIDTH = PANEL_WIDTH * 2;
-const FONT_FAMILY = "'Noto Sans CJK SC','Noto Sans CJK TC','Microsoft YaHei','PingFang SC','Hiragino Sans GB','WenQuanYi Zen Hei','Arial Unicode MS','DejaVu Sans',sans-serif";
+const FONT_FAMILY = "'Wildlife Sans','Noto Sans CJK SC','Noto Sans CJK TC','Microsoft YaHei','PingFang SC','Hiragino Sans GB','WenQuanYi Zen Hei','Arial Unicode MS','DejaVu Sans',sans-serif";
+
+function loadEmbeddedFontFace() {
+  const candidates = [
+    path.resolve(__dirname, '../../../node_modules/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2'),
+    path.resolve(__dirname, '../../../node_modules/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff'),
+    path.resolve(process.cwd(), 'node_modules/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2'),
+    path.resolve(process.cwd(), 'node_modules/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff'),
+  ];
+
+  for (const fontPath of candidates) {
+    try {
+      if (!fs.existsSync(fontPath)) continue;
+      const ext = path.extname(fontPath).toLowerCase();
+      const format = ext === '.woff2' ? 'woff2' : 'woff';
+      const mime = ext === '.woff2' ? 'font/woff2' : 'font/woff';
+      const base64 = fs.readFileSync(fontPath).toString('base64');
+      return `@font-face{font-family:'Wildlife Sans';src:url(data:${mime};base64,${base64}) format('${format}');font-weight:400;font-style:normal;}`;
+    } catch (err) {
+      logger.warn('Unable to load embedded font candidate', { fontPath, error: err.message });
+    }
+  }
+
+  logger.warn('Embedded CJK font not found. Falling back to system fonts for SVG rendering.');
+  return '';
+}
+
+const EMBEDDED_FONT_FACE = loadEmbeddedFontFace();
+const SVG_FONT_STYLE = EMBEDDED_FONT_FACE ? `<defs><style>${EMBEDDED_FONT_FACE}</style></defs>` : '';
 
 /** IUCN status colours used in the badge. */
 const IUCN_COLORS = {
@@ -145,6 +175,7 @@ function buildInfoPanelSvg(data) {
   }
 
   return `
+    ${SVG_FONT_STYLE}
     <rect width="${PANEL_WIDTH}" height="${IMAGE_HEIGHT}" fill="#1c1c1c" />
     <!-- Header bar -->
     <rect width="${PANEL_WIDTH}" height="6" fill="${iucnColor}" />
@@ -393,6 +424,7 @@ function buildResultPanel(data, W, H) {
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+    ${SVG_FONT_STYLE}
     <rect width="${W}" height="${H}" fill="#000000"/>
     ${headerSvg}
     ${headerBadgesSvg}

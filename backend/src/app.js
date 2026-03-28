@@ -20,8 +20,7 @@ app.use(morgan(morganFormat, {
   stream: { write: (msg) => logger.http(msg.trim()) },
 }));
 
-// ── Rate limiting (apply broadly; identify routes add their own on top) ───────
-app.use(generalLimiter);
+// ── Rate limiting (API routes only; avoid throttling Telegram webhook) ──────
 
 // ── Health / info ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
@@ -65,7 +64,7 @@ app.get('/', (_req, res) => {
 });
 
 // ── API routes ────────────────────────────────────────────────────────────────
-app.use('/api/v1', apiRoutes);
+app.use('/api/v1', generalLimiter, apiRoutes);
 
 
 module.exports = app;

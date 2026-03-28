@@ -19,6 +19,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@fontsource/noto-sans-sc": "^5.2.9",
     "@google/genai": "^1.46.0",
     "axios": "^1.6.2",
     "dotenv": "^16.3.1",

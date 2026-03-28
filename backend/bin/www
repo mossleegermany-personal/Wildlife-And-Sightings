@@ -42,16 +42,33 @@ const server = http.createServer(app);
 // ── Pre-load shared resources ─────────────────────────────────────────────────
 
 const ebirdService = new EBirdService();
-ebirdService.preloadTaxonomy().catch((err) => {
-  logger.warn('eBird taxonomy preload failed — will retry on first request', {
-    error: err.message,
-  });
-});
+
+const startupTasks = [];
+startupTasks.push(
+  ebirdService.preloadTaxonomy().catch((err) => {
+    logger.warn('eBird taxonomy preload failed — will retry on first request', {
+      error: err.message,
+    });
+  })
+);
 
 // ── Start Telegram bot ────────────────────────────────────────────────────────
 
+const { ready: telegramReady } = createBot(app);
+startupTasks.push(telegramReady);
 
-createBot(app);
+Promise.allSettled(startupTasks).then((results) => {
+  const failed = results
+    .map((result, idx) => ({ result, idx }))
+    .filter(({ result }) => result.status === 'rejected');
+
+  if (failed.length > 0) {
+    logger.warn('Some startup tasks did not complete successfully', { failedTasks: failed.length });
+    return;
+  }
+
+  logger.info('Background startup tasks completed');
+});
 
 // 404 handler (must be after bot webhook registration)
 app.use((_req, res) => {
