@@ -8,40 +8,39 @@
 const sharp = require('sharp');
 const fs = require('node:fs');
 const path = require('node:path');
+const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 const logger = require('../../../src/utils/logger');
 
 const PANEL_WIDTH = 400;
 const IMAGE_HEIGHT = 400;
 const COMPOSITE_WIDTH = PANEL_WIDTH * 2;
-const FONT_FAMILY = "'Wildlife Sans','Noto Sans CJK SC','Noto Sans CJK TC','Microsoft YaHei','PingFang SC','Hiragino Sans GB','WenQuanYi Zen Hei','Arial Unicode MS','DejaVu Sans',sans-serif";
+const FONT_FAMILY = "'Wildlife Sans', Arial, sans-serif";
 
-function loadEmbeddedFontFace() {
+function registerCanvasFonts() {
   const candidates = [
-    path.resolve(__dirname, '../../../node_modules/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2'),
-    path.resolve(__dirname, '../../../node_modules/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff'),
     path.resolve(process.cwd(), 'node_modules/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2'),
     path.resolve(process.cwd(), 'node_modules/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff'),
+    path.resolve(__dirname, '../../../node_modules/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff2'),
+    path.resolve(__dirname, '../../../node_modules/@fontsource/noto-sans-sc/files/noto-sans-sc-chinese-simplified-400-normal.woff'),
   ];
 
   for (const fontPath of candidates) {
     try {
       if (!fs.existsSync(fontPath)) continue;
-      const ext = path.extname(fontPath).toLowerCase();
-      const format = ext === '.woff2' ? 'woff2' : 'woff';
-      const mime = ext === '.woff2' ? 'font/woff2' : 'font/woff';
-      const base64 = fs.readFileSync(fontPath).toString('base64');
-      return `@font-face{font-family:'Wildlife Sans';src:url(data:${mime};base64,${base64}) format('${format}');font-weight:400;font-style:normal;}`;
+      const ok = GlobalFonts.registerFromPath(fontPath, 'Wildlife Sans');
+      if (ok) {
+        logger.info('Canvas font registered', { fontPath });
+        return;
+      }
     } catch (err) {
-      logger.warn('Unable to load embedded font candidate', { fontPath, error: err.message });
+      logger.warn('Failed to register canvas font candidate', { fontPath, error: err.message });
     }
   }
 
-  logger.warn('Embedded CJK font not found. Falling back to system fonts for SVG rendering.');
-  return '';
+  logger.warn('No bundled canvas font registered. Falling back to system fonts.');
 }
 
-const EMBEDDED_FONT_FACE = loadEmbeddedFontFace();
-const SVG_FONT_STYLE = EMBEDDED_FONT_FACE ? `<defs><style>${EMBEDDED_FONT_FACE}</style></defs>` : '';
+registerCanvasFonts();
 
 /** IUCN status colours used in the badge. */
 const IUCN_COLORS = {
@@ -101,14 +100,8 @@ async function createCompositeImage(photoUrl, data) {
       .resize(PANEL_WIDTH, IMAGE_HEIGHT, { fit: 'cover', position: 'centre' })
       .toBuffer();
 
-    // Build info panel as SVG
-    const infoPanelSvg = buildInfoPanelSvg(data);
-
-    const infoPanelBuffer = await sharp(
-      Buffer.from(`<svg width="${PANEL_WIDTH}" height="${IMAGE_HEIGHT}">${infoPanelSvg}</svg>`)
-    )
-      .png()
-      .toBuffer();
+    // Build info panel using canvas text rendering (no SVG/fontconfig dependency)
+    const infoPanelBuffer = await buildResultPanelCanvas(data, PANEL_WIDTH, IMAGE_HEIGHT);
 
     // Composite side-by-side
     const composite = await sharp({
@@ -175,7 +168,6 @@ function buildInfoPanelSvg(data) {
   }
 
   return `
-    ${SVG_FONT_STYLE}
     <rect width="${PANEL_WIDTH}" height="${IMAGE_HEIGHT}" fill="#1c1c1c" />
     <!-- Header bar -->
     <rect width="${PANEL_WIDTH}" height="6" fill="${iucnColor}" />
@@ -280,9 +272,7 @@ async function createResultCanvas(refPhotoUrl, userBuffer, data) {
       })
       .toBuffer();
 
-    const rightImg = await sharp(Buffer.from(buildResultPanel(data, HALF, H)))
-      .png()
-      .toBuffer();
+    const rightImg = await buildResultPanelCanvas(data, HALF, H);
 
     return await sharp({
       create: { width: W, height: H, channels: 3, background: { r: 15, g: 23, b: 42 } },
@@ -297,6 +287,150 @@ async function createResultCanvas(refPhotoUrl, userBuffer, data) {
     logger.error('createResultCanvas failed', { error: err.message });
     return null;
   }
+}
+
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.arcTo(x + width, y, x + width, y + r, r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.arcTo(x + width, y + height, x + width - r, y + height, r);
+  ctx.lineTo(x + r, y + height);
+  ctx.arcTo(x, y + height, x, y + height - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
+function rgbaFromHex(hex, alpha = 1) {
+  const clean = String(hex || '').replace('#', '');
+  if (clean.length !== 6) return `rgba(255,255,255,${alpha})`;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+async function buildResultPanelCanvas(data, W, H) {
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, W, H);
+
+  const iucn = resolveIucn(data.iucnStatus);
+  const sexVal = data.sex || '';
+  const lifeStageVal = data.lifeStage || data.life_stage || '';
+  const morphVal = data.morph || '';
+
+  const headerBadges = [];
+  const skip = (v) => !v || ['Unknown', 'unknown', 'None', 'N/A', 'null', '-', ''].includes(String(v).trim());
+
+  if (!skip(data.localStatus)) {
+    headerBadges.push({ label: renderSafeText(cleanBadgeLabel(data.localStatus), data.localStatusCode || ''), color: '#38bdf8' });
+  }
+  const iucnSkip = ['Not Evaluated', 'NE', 'Unknown', '-', ''];
+  if (iucn.label && !iucnSkip.includes(iucn.label.trim())) {
+    headerBadges.push({ label: cleanBadgeLabel(iucn.label), color: '#22c55e' });
+  }
+  if (!skip(sexVal) && sexVal !== 'Unknown') {
+    let sexLabel = cleanBadgeLabel(sexVal);
+    if (sexVal.toLowerCase() === 'male') sexLabel += ' (M)';
+    else if (sexVal.toLowerCase() === 'female') sexLabel += ' (F)';
+    headerBadges.push({ label: sexLabel, color: '#a78bfa' });
+  }
+  if (!skip(lifeStageVal)) {
+    headerBadges.push({ label: cleanBadgeLabel(lifeStageVal), color: '#fb923c' });
+  }
+  if (data.breedingPlumage && String(data.breedingPlumage).toLowerCase() === 'yes') {
+    headerBadges.push({ label: 'Breeding Plumage', color: '#34d399' });
+  }
+  if (!skip(morphVal)) {
+    headerBadges.push({ label: cleanBadgeLabel(morphVal), color: '#f472b6' });
+  }
+
+  const leftX = 16;
+  const rightX = Math.floor(W / 2) + 4;
+  const rowTop = 56;
+  const rowGap = 40;
+  const badgeW = Math.floor((W - 16 - 16 - 8) / 2);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = "600 12px 'Wildlife Sans', Arial, sans-serif";
+  headerBadges.forEach((badge, idx) => {
+    const col = idx % 2;
+    const row = Math.floor(idx / 2);
+    const bx = col === 0 ? leftX : rightX;
+    const by = rowTop + row * rowGap;
+    drawRoundedRect(ctx, bx, by, badgeW, 26, 13);
+    ctx.fillStyle = rgbaFromHex(badge.color, 0.12);
+    ctx.fill();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = badge.color;
+    ctx.stroke();
+    ctx.fillStyle = badge.color;
+    ctx.fillText(truncate(renderSafeText(badge.label, 'N/A'), 48), bx + (badgeW / 2), by + 13);
+  });
+
+  const commonLines = wordWrap(renderSafeText(data.commonName || 'Unknown', data.scientificName || 'Unknown'), 26).slice(0, 2);
+  const sciLines = wordWrap(renderSafeText(data.scientificName || '', ''), 36).slice(0, 2);
+
+  let curY;
+  if (headerBadges.length > 0) {
+    const badgeRows = Math.ceil(headerBadges.length / 2);
+    curY = 56 + (badgeRows - 1) * 40 + 26 + 70;
+  } else {
+    curY = 120;
+  }
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = "bold 30px 'Wildlife Sans', Arial, sans-serif";
+  for (const line of commonLines) {
+    ctx.fillText(line, 16, curY);
+    curY += 38;
+  }
+
+  curY += 6;
+  ctx.fillStyle = '#7dd3fc';
+  ctx.font = "italic 18px 'Wildlife Sans', Arial, sans-serif";
+  for (const line of sciLines) {
+    ctx.fillText(line, 16, curY);
+    curY += 26;
+  }
+
+  if (Array.isArray(data.subspecies) && data.subspecies.length > 0 && (data.subspeciesFromImage || data.subspeciesByLocation)) {
+    curY += 6;
+    const subspLabel = data.subspeciesFromImage ? 'Subspecies (from image):' : `Subspecies (${data.subspeciesLocation || 'location'}):`;
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = "13px 'Wildlife Sans', Arial, sans-serif";
+    ctx.fillText(renderSafeText(subspLabel, 'Subspecies:'), 16, curY);
+    curY += 20;
+    ctx.fillStyle = '#86efac';
+    for (const grp of data.subspecies.slice(0, 6)) {
+      const parts = String(grp || '').trim().split(/\s+/);
+      const epithet = parts.length >= 3 ? parts.slice(2).join(' ') : grp;
+      ctx.fillText(`- ${renderSafeText(epithet, 'subspecies')}`, 24, curY);
+      curY += 18;
+    }
+  }
+
+  const loc = renderSafeText(data.ebirdSightingsLocation || 'Singapore', data.country || 'Singapore');
+  const sightingsText = typeof data.ebirdSightingsCount === 'number' && data.ebirdSightingsCount >= 0
+    ? `No. of Sightings (${loc}): ${data.ebirdSightingsCount}`
+    : `No. of Sightings (${loc}): N/A`;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#facc15';
+  ctx.font = "bold 32px 'Wildlife Sans', Arial, sans-serif";
+  ctx.fillText(sightingsText, W / 2, H - 42);
+
+  return canvas.toBuffer('image/png');
 }
 
 function buildResultPanel(data, W, H) {
@@ -424,7 +558,6 @@ function buildResultPanel(data, W, H) {
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
-    ${SVG_FONT_STYLE}
     <rect width="${W}" height="${H}" fill="#000000"/>
     ${headerSvg}
     ${headerBadgesSvg}

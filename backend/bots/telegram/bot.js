@@ -32,7 +32,7 @@ function createBot(app) {
 
   if (!token) {
     logger.warn('TELEGRAM_BOT_TOKEN not set — Telegram bot will not start');
-    return { bot: null, ready: Promise.resolve() };
+    return null;
   }
 
   const webhookBaseUrl = String(process.env.TELEGRAM_WEBHOOK_URL || '').trim();
@@ -83,19 +83,15 @@ function createBot(app) {
     bot.sendMessage(msg.chat.id, '❓ Unknown command. Type /help to see all available commands.');
   });
 
-  let ready = Promise.resolve();
-
   if (useWebhook) {
     if (!app) {
       logger.error('Webhook mode requires an Express app instance. Falling back to polling.');
-      ready = bot.deleteWebHook({ drop_pending_updates: false })
+      bot.deleteWebHook({ drop_pending_updates: false })
         .catch(() => null)
-        .then(() => bot.startPolling())
-        .then(() => {
-          logger.info('Telegram bot started (polling fallback)');
-        })
-        .catch((err) => {
-          logger.error('Failed to start Telegram polling fallback', { error: err.message });
+        .finally(() => {
+          bot.startPolling()
+            .then(() => logger.info('Telegram bot started (polling fallback)'))
+            .catch((err) => logger.error('Failed to start Telegram polling fallback', { error: err.message }));
         });
     } else {
       const normalizedPath = webhookPath.startsWith('/') ? webhookPath : `/${webhookPath}`;
@@ -109,19 +105,12 @@ function createBot(app) {
           }
         }
 
-        // Acknowledge the webhook quickly; process updates out-of-band.
-        setImmediate(() => {
-          try {
-            bot.processUpdate(req.body);
-          } catch (err) {
-            logger.error('Failed to process Telegram webhook update', { error: err.message });
-          }
-        });
+        bot.processUpdate(req.body);
         return res.sendStatus(200);
       });
 
       const webhookOptions = webhookSecretToken ? { secret_token: webhookSecretToken } : undefined;
-      ready = bot.setWebHook(webhookUrl, webhookOptions)
+      bot.setWebHook(webhookUrl, webhookOptions)
         .then(() => {
           logger.info('Telegram bot started (webhook)', { webhookUrl, webhookPath: normalizedPath });
         })
@@ -135,14 +124,12 @@ function createBot(app) {
       logger.error('Telegram polling error', { error: err.message, code: err.code });
     });
 
-    ready = bot.deleteWebHook({ drop_pending_updates: false })
+    bot.deleteWebHook({ drop_pending_updates: false })
       .catch(() => null)
-      .then(() => bot.startPolling())
-      .then(() => {
-        logger.info('Telegram bot started (polling)');
-      })
-      .catch((err) => {
-        logger.error('Failed to start Telegram polling', { error: err.message });
+      .finally(() => {
+        bot.startPolling()
+          .then(() => logger.info('Telegram bot started (polling)'))
+          .catch((err) => logger.error('Failed to start Telegram polling', { error: err.message }));
       });
   }
 
@@ -150,7 +137,7 @@ function createBot(app) {
     logger.error('Telegram bot error', { error: err.message });
   });
 
-  return { bot, ready };
+  return bot;
 }
 
 module.exports = { createBot };
