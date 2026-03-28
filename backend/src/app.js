@@ -67,12 +67,5 @@ app.get('/', (_req, res) => {
 // ── API routes ────────────────────────────────────────────────────────────────
 app.use('/api/v1', apiRoutes);
 
-// ── 404 handler ───────────────────────────────────────────────────────────────
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Not found' });
-});
-
-// ── Global error handler (must be last) ───────────────────────────────────────
-app.use(errorHandler);
 
 module.exports = app;
