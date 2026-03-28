@@ -833,6 +833,7 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
     // iNaturalist slug (non-birds only)
     let inatSlug = null;
     let logCountry = options.location || '';
+    let locationCoords = null;
     if (!isBird && (data.scientificName || data.commonName)) {
       const inatData = await getSpeciesPhoto(data.scientificName || data.commonName).catch(() => null);
       if (inatData && inatData.taxonSlug) inatSlug = inatData.taxonSlug;
@@ -881,7 +882,7 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
       // Always fetch GBIF + eBird occurrence for cross-reference (all birds, all locations)
       let gbifOcc = { count: 0 };
       let ebirdLocal = { found: false, count: 0 };
-      let locationCoords = countryCoords;
+      locationCoords = countryCoords;
       if (options.location) {
         await setStatus(`📍 Looking up sightings near <b>${escHtml(options.location)}</b>…`);
         if (!locationCoords) {
@@ -1012,6 +1013,12 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
       }
     } else {
       // Non-bird: use GBIF for local presence
+      if (gbifUsageKey && options.location) {
+        if (!locationCoords) {
+          locationCoords = await geocodeLocation(options.location).catch(() => null);
+        }
+      }
+
       if (gbifUsageKey && locationCoords) {
         const occ = await checkOccurrencesAtLocation(gbifUsageKey, locationCoords).catch(() => ({ count: 0 }));
         const n = occ.count || 0;
