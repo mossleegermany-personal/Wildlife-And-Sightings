@@ -68,6 +68,7 @@ jobs:
           TELEGRAM_WEBHOOK_PATH: ${{ secrets.TELEGRAM_WEBHOOK_PATH }}
           TELEGRAM_WEBHOOK_SECRET_TOKEN: ${{ secrets.TELEGRAM_WEBHOOK_SECRET_TOKEN }}
           PORT: ${{ secrets.PORT }}
+
           GOOGLE_SHEETS_CLIENT_EMAIL: ${{ secrets.GOOGLE_SHEETS_CLIENT_EMAIL }}
           GOOGLE_SHEETS_PRIVATE_KEY: ${{ secrets.GOOGLE_SHEETS_PRIVATE_KEY }}
           GOOGLE_SHEETS_SPREADSHEET_ID: ${{ secrets.GOOGLE_SHEETS_SPREADSHEET_ID }}
@@ -75,7 +76,11 @@ jobs:
         with:
           inlineScript: |
             if [ -z "$AZURE_WEBAPP_RESOURCE_GROUP" ]; then
-              echo "AZURE_WEBAPP_RESOURCE_GROUP secret is required"
+              AZURE_WEBAPP_RESOURCE_GROUP=$(az webapp list --query "[?name=='$AZURE_WEBAPP_NAME'].resourceGroup | [0]" -o tsv)
+            fi
+
+            if [ -z "$AZURE_WEBAPP_RESOURCE_GROUP" ]; then
+              echo "Could not resolve resource group for web app '$AZURE_WEBAPP_NAME'. Set AZURE_WEBAPP_RESOURCE_GROUP secret or verify app exists in this subscription."
               exit 1
             fi
 

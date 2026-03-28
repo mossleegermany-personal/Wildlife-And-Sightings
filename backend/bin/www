@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Wildlife Sightings API — HTTP server entry point
+ * Wildlife Sightings API — HTTP server entry point done
  *
  * Follows the express-generator bin/www convention:
  *   - Resolves and normalises the port
