@@ -11,29 +11,12 @@ const logger        = require('../../../src/utils/logger');
 
 const SHEET_NAME = 'Animal Identification';
 const PAGE_SIZE  = 6;
-const TEXT_ONLY_ON_AZURE = Boolean(process.env.WEBSITE_HOSTNAME);
 
 // chatId → { allRows, rows, page, msgId, isGroup, searchTerm }
 const sessions = new Map();
 
 // chatId → { promptMsgId }
 const searchPending = new Map();
-
-async function openTextSearchPrompt(bot, chatId) {
-  const existing = searchPending.get(chatId);
-  if (existing?.promptMsgId) {
-    await bot.deleteMessage(chatId, existing.promptMsgId).catch(() => {});
-  }
-  const prompt = await bot.sendMessage(
-    chatId,
-    '🔎 <b>Search Records</b>\nType a species name to filter.\nType <b>all</b> to show everything again.',
-    {
-      parse_mode: 'HTML',
-      reply_markup: { force_reply: true, selective: true },
-    }
-  );
-  searchPending.set(chatId, { promptMsgId: prompt.message_id });
-}
 
 /** Fetch all rows for this chat from Sheets, newest first. */
 async function fetchUserRows(chatId) {
@@ -62,7 +45,9 @@ function escHtml(str) {
 }
 
 function buildRecordDeepLink(globalIdx) {
-  const username = String(process.env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '').trim();
+  const username = String(
+    process.env.TELEGRAM_BOT_USERNAME || process.env.BOT_USERNAME || process.env.TELEGRAM_BOT_NAME || ''
+  ).replace(/^@/, '').trim();
   if (!username) return '';
   return `https://t.me/${username}?start=canvas_0_${globalIdx}`;
 }
@@ -71,7 +56,7 @@ function buildRecordDeepLink(globalIdx) {
 function buildPageText(pageRows, page, totalPages, isGroup, searchTerm) {
   let header = `<b>📋 My Records</b>`;
   if (searchTerm) header += `   🔍 <i>${escHtml(searchTerm)}</i>`;
-  if (!TEXT_ONLY_ON_AZURE) header += `   <i>Page ${page} of ${totalPages}</i>`;
+  header += `   <i>Page ${page} of ${totalPages}</i>`;
   let text = header + '\n\n';
   pageRows.forEach((row, i) => {
     const num       = (page - 1) * PAGE_SIZE + i + 1;
@@ -99,27 +84,18 @@ function buildPageText(pageRows, page, totalPages, isGroup, searchTerm) {
 /** Build list page keyboard: «‹›» nav + search/clear. */
 function buildListKeyboard(pageRows, page, totalPages, chatId, searchTerm) {
   const keyboard = [];
-
-  // One-tap species buttons to retrieve the saved canvas directly.
-  pageRows.forEach((row, i) => {
-    const globalIdx = (page - 1) * PAGE_SIZE + i;
-    const species = row[9] || 'Unknown species';
-    keyboard.push([
-      { text: `🖼️ ${species}`, callback_data: `rec_detail:${chatId}:${globalIdx}` },
-    ]);
-  });
-
-  keyboard.push([
-    { text: '«', callback_data: `rec_page:${chatId}:1` },
-    { text: '‹', callback_data: `rec_page:${chatId}:${Math.max(1, page - 1)}` },
-    { text: '›', callback_data: `rec_page:${chatId}:${Math.min(totalPages, page + 1)}` },
-    { text: '»', callback_data: `rec_page:${chatId}:${totalPages}` },
-  ]);
   if (searchTerm) {
     keyboard.push([{ text: '❌ Clear Search', callback_data: `rec_clearsearch:${chatId}` }]);
   } else {
     keyboard.push([{ text: '🔍 Search', callback_data: `rec_search:${chatId}` }]);
   }
+  // Navigation row is shown below the Search/Clear row.
+  keyboard.push([
+    { text: '<<', callback_data: `rec_page:${chatId}:1` },
+    { text: '<', callback_data: `rec_page:${chatId}:${Math.max(1, page - 1)}` },
+    { text: '>', callback_data: `rec_page:${chatId}:${Math.min(totalPages, page + 1)}` },
+    { text: '>>', callback_data: `rec_page:${chatId}:${totalPages}` },
+  ]);
   return { inline_keyboard: keyboard };
 }
 
@@ -133,7 +109,7 @@ async function showPage(bot, chatId, page, editMsgId = null) {
     const noText   = searchTerm
       ? `🔍 No records match <i>${searchTerm}</i>.`
       : '📋 <b>No records found.</b>\n\nSend me a photo to start identifying animals!';
-    const noMarkup = (!TEXT_ONLY_ON_AZURE && searchTerm)
+    const noMarkup = searchTerm
       ? { inline_keyboard: [[{ text: '❌ Clear Search', callback_data: `rec_clearsearch:${chatId}` }]] }
       : undefined;
     if (editMsgId) {
@@ -154,13 +130,9 @@ async function showPage(bot, chatId, page, editMsgId = null) {
   page = Math.max(1, Math.min(page, totalPages));
   session.page = page;
 
-  const pageRows = TEXT_ONLY_ON_AZURE
-    ? rows
-    : rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const text     = buildPageText(pageRows, page, totalPages, isGroup, searchTerm);
-  const markup   = TEXT_ONLY_ON_AZURE
-    ? undefined
-    : buildListKeyboard(pageRows, page, totalPages, chatId, searchTerm);
+  const markup   = buildListKeyboard(pageRows, page, totalPages, chatId, searchTerm);
 
   try {
     if (editMsgId) {
@@ -199,9 +171,6 @@ module.exports = function registerRecords(bot) {
         sessions.set(chatId, { allRows, rows: allRows, page: 1, msgId: null, isGroup, searchTerm: '' });
         await bot.deleteMessage(chatId, loadMsg.message_id).catch(() => {});
         await showPage(bot, chatId, 1);
-        if (TEXT_ONLY_ON_AZURE) {
-          await openTextSearchPrompt(bot, chatId);
-        }
       } catch (err) {
         await bot.deleteMessage(chatId, loadMsg.message_id).catch(() => {});
         bot.sendMessage(chatId, `❌ Could not load records: ${err.message}`);
@@ -234,12 +203,6 @@ module.exports = function registerRecords(bot) {
 
     // ── 🔍 Search ────────────────────────────────────────────────────────
     if (data.startsWith('rec_search:')) {
-      if (TEXT_ONLY_ON_AZURE) {
-        const chatId = parseInt(data.split(':')[1]);
-        bot.answerCallbackQuery(query.id);
-        await openTextSearchPrompt(bot, chatId);
-        return;
-      }
       const chatId  = parseInt(data.split(':')[1]);
       const session = sessions.get(chatId);
       if (!session) return bot.answerCallbackQuery(query.id);
@@ -305,7 +268,7 @@ module.exports = function registerRecords(bot) {
     const session = sessions.get(chatId);
     if (!session) return;
     const term = msg.text.trim();
-    if (TEXT_ONLY_ON_AZURE && /^(all|clear|reset)$/i.test(term)) {
+    if (/^(all|clear|reset)$/i.test(term)) {
       session.rows = session.allRows;
       session.searchTerm = '';
     } else {
@@ -314,8 +277,5 @@ module.exports = function registerRecords(bot) {
     }
     session.page       = 1;
     await showPage(bot, chatId, 1, session.msgId);
-    if (TEXT_ONLY_ON_AZURE) {
-      await openTextSearchPrompt(bot, chatId);
-    }
   });
 };

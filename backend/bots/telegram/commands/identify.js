@@ -1021,12 +1021,16 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
     } else {
       // Non-bird: use GBIF for local presence
       let nonBirdLocationCoords = locationCoords;
+      let nonBirdSightingsCount = null;
+      let nonBirdSightingsLocation = options.location || '';
       if (gbifUsageKey && options.location && !nonBirdLocationCoords) {
         nonBirdLocationCoords = await geocodeLocation(options.location).catch(() => null);
       }
 
       if (gbifUsageKey && nonBirdLocationCoords) {
         const occ = await checkOccurrencesAtLocation(gbifUsageKey, nonBirdLocationCoords).catch(() => ({ count: 0 }));
+        nonBirdSightingsCount = occ.count || 0;
+        nonBirdSightingsLocation = nonBirdLocationCoords.country || nonBirdLocationCoords.displayName || options.location || '';
         const n = occ.count || 0;
         if (n > 50)     data.localStatus = 'Common Locally';
         else if (n > 5) data.localStatus = 'Present Locally';
@@ -1035,6 +1039,18 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
         const abundance = classifyAbundance({ gbifOccurrence: occ, ebirdSummary: { count: 0 } });
         data.abundanceCode = abundance.code;
         data.abundance = abundance.label;
+      } else if (gbifUsageKey) {
+        const globalCount = await getGlobalOccurrenceCount(gbifUsageKey).catch(() => null);
+        if (typeof globalCount === 'number') {
+          nonBirdSightingsCount = globalCount;
+          nonBirdSightingsLocation = 'Global (GBIF)';
+        }
+      }
+
+      if (typeof nonBirdSightingsCount === 'number' && nonBirdSightingsCount >= 0) {
+        // Reuse existing canvas fields so non-bird results also show sightings count.
+        data.ebirdSightingsCount = nonBirdSightingsCount;
+        data.ebirdSightingsLocation = nonBirdSightingsLocation || 'GBIF';
       }
     }
 
