@@ -791,6 +791,13 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
       gbifResolvedCommonName = gbifNames.commonName || null;
     }
 
+    // Non-birds: use GBIF only for cross-reference/occurrence context.
+    // Keep Gemini names for user-facing output even when GBIF accepted names differ.
+    if (!isBird) {
+      if (geminiSciName) data.scientificName = geminiSciName;
+      if (geminiCommonName) data.commonName = geminiCommonName;
+    }
+
     // eBird species code (birds only)
     // Priority: GBIF accepted names first, then Gemini names.
     let ebirdSpeciesCode = null;
@@ -833,6 +840,7 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
     // iNaturalist slug (non-birds only)
     let inatSlug = null;
     let logCountry = options.location || '';
+    let locationCoords = null;
     if (!isBird && (data.scientificName || data.commonName)) {
       const inatData = await getSpeciesPhoto(data.scientificName || data.commonName).catch(() => null);
       if (inatData && inatData.taxonSlug) inatSlug = inatData.taxonSlug;
@@ -881,7 +889,7 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
       // Always fetch GBIF + eBird occurrence for cross-reference (all birds, all locations)
       let gbifOcc = { count: 0 };
       let ebirdLocal = { found: false, count: 0 };
-      let locationCoords = countryCoords;
+      locationCoords = countryCoords;
       if (options.location) {
         await setStatus(`📍 Looking up sightings near <b>${escHtml(options.location)}</b>…`);
         if (!locationCoords) {
@@ -1012,8 +1020,13 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
       }
     } else {
       // Non-bird: use GBIF for local presence
-      if (gbifUsageKey && locationCoords) {
-        const occ = await checkOccurrencesAtLocation(gbifUsageKey, locationCoords).catch(() => ({ count: 0 }));
+      let nonBirdLocationCoords = locationCoords;
+      if (gbifUsageKey && options.location && !nonBirdLocationCoords) {
+        nonBirdLocationCoords = await geocodeLocation(options.location).catch(() => null);
+      }
+
+      if (gbifUsageKey && nonBirdLocationCoords) {
+        const occ = await checkOccurrencesAtLocation(gbifUsageKey, nonBirdLocationCoords).catch(() => ({ count: 0 }));
         const n = occ.count || 0;
         if (n > 50)     data.localStatus = 'Common Locally';
         else if (n > 5) data.localStatus = 'Present Locally';

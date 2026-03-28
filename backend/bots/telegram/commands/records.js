@@ -11,12 +11,29 @@ const logger        = require('../../../src/utils/logger');
 
 const SHEET_NAME = 'Animal Identification';
 const PAGE_SIZE  = 6;
+const TEXT_ONLY_ON_AZURE = Boolean(process.env.WEBSITE_HOSTNAME);
 
 // chatId → { allRows, rows, page, msgId, isGroup, searchTerm }
 const sessions = new Map();
 
 // chatId → { promptMsgId }
 const searchPending = new Map();
+
+async function openTextSearchPrompt(bot, chatId) {
+  const existing = searchPending.get(chatId);
+  if (existing?.promptMsgId) {
+    await bot.deleteMessage(chatId, existing.promptMsgId).catch(() => {});
+  }
+  const prompt = await bot.sendMessage(
+    chatId,
+    '🔎 <b>Search Records</b>\nType a species name to filter.\nType <b>all</b> to show everything again.',
+    {
+      parse_mode: 'HTML',
+      reply_markup: { force_reply: true, selective: true },
+    }
+  );
+  searchPending.set(chatId, { promptMsgId: prompt.message_id });
+}
 
 /** Fetch all rows for this chat from Sheets, newest first. */
 async function fetchUserRows(chatId) {
@@ -36,11 +53,25 @@ function filterRows(allRows, term) {
   );
 }
 
+function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function buildRecordDeepLink(globalIdx) {
+  const username = String(process.env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '').trim();
+  if (!username) return '';
+  return `https://t.me/${username}?start=canvas_0_${globalIdx}`;
+}
+
 /** Build list page text. */
 function buildPageText(pageRows, page, totalPages, isGroup, searchTerm) {
   let header = `<b>📋 My Records</b>`;
-  if (searchTerm) header += `   🔍 <i>${searchTerm}</i>`;
-  header += `   <i>Page ${page} of ${totalPages}</i>`;
+  if (searchTerm) header += `   🔍 <i>${escHtml(searchTerm)}</i>`;
+  if (!TEXT_ONLY_ON_AZURE) header += `   <i>Page ${page} of ${totalPages}</i>`;
   let text = header + '\n\n';
   pageRows.forEach((row, i) => {
     const num       = (page - 1) * PAGE_SIZE + i + 1;
@@ -49,11 +80,18 @@ function buildPageText(pageRows, page, totalPages, isGroup, searchTerm) {
     const country   = row[8] || '';
     const species   = row[9] || '—';
     const user      = isGroup ? (row[3] || '') : '';
-    text += `${num}. Species: <b>${species}</b>`;
-    if (user) text += ` · ${user}`;
-    text += `\n    Country: ${country || '—'}`;
-    text += `\n    Date: ${dateV}`;
-    text += `\n    Time: ${timeV}\n\n`;
+    const globalIdx = (page - 1) * PAGE_SIZE + i;
+    const deepLink = buildRecordDeepLink(globalIdx);
+    const speciesText = escHtml(species);
+    const linkedSpecies = deepLink
+      ? `<a href="${deepLink}"><b>${speciesText}</b></a>`
+      : `<b>${speciesText}</b>`;
+
+    text += `${num}. Species: ${linkedSpecies}`;
+    if (user) text += ` · ${escHtml(user)}`;
+    text += `\n    Country: ${escHtml(country || '—')}`;
+    text += `\n    Date: ${escHtml(dateV)}`;
+    text += `\n    Time: ${escHtml(timeV)}\n\n`;
   });
   return text.trim();
 }
@@ -95,7 +133,7 @@ async function showPage(bot, chatId, page, editMsgId = null) {
     const noText   = searchTerm
       ? `🔍 No records match <i>${searchTerm}</i>.`
       : '📋 <b>No records found.</b>\n\nSend me a photo to start identifying animals!';
-    const noMarkup = searchTerm
+    const noMarkup = (!TEXT_ONLY_ON_AZURE && searchTerm)
       ? { inline_keyboard: [[{ text: '❌ Clear Search', callback_data: `rec_clearsearch:${chatId}` }]] }
       : undefined;
     if (editMsgId) {
@@ -105,7 +143,7 @@ async function showPage(bot, chatId, page, editMsgId = null) {
       }).catch(() => {});
     } else {
       await bot.sendMessage(chatId, noText, {
-        parse_mode: 'HTML', ...(noMarkup ? { reply_markup: noMarkup } : {}),
+        parse_mode: 'HTML', disable_web_page_preview: true, ...(noMarkup ? { reply_markup: noMarkup } : {}),
       });
     }
     if (!searchTerm) sessions.delete(chatId);
@@ -116,17 +154,29 @@ async function showPage(bot, chatId, page, editMsgId = null) {
   page = Math.max(1, Math.min(page, totalPages));
   session.page = page;
 
-  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageRows = TEXT_ONLY_ON_AZURE
+    ? rows
+    : rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const text     = buildPageText(pageRows, page, totalPages, isGroup, searchTerm);
-  const markup   = buildListKeyboard(pageRows, page, totalPages, chatId, searchTerm);
+  const markup   = TEXT_ONLY_ON_AZURE
+    ? undefined
+    : buildListKeyboard(pageRows, page, totalPages, chatId, searchTerm);
 
   try {
     if (editMsgId) {
       await bot.editMessageText(text, {
-        chat_id: chatId, message_id: editMsgId, parse_mode: 'HTML', reply_markup: markup,
+        chat_id: chatId,
+        message_id: editMsgId,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        ...(markup ? { reply_markup: markup } : {}),
       }).catch(() => {});
     } else {
-      const sent = await bot.sendMessage(chatId, text, { parse_mode: 'HTML', reply_markup: markup });
+      const sent = await bot.sendMessage(chatId, text, {
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        ...(markup ? { reply_markup: markup } : {}),
+      });
       session.msgId = sent.message_id;
     }
   } catch (err) {
@@ -149,6 +199,9 @@ module.exports = function registerRecords(bot) {
         sessions.set(chatId, { allRows, rows: allRows, page: 1, msgId: null, isGroup, searchTerm: '' });
         await bot.deleteMessage(chatId, loadMsg.message_id).catch(() => {});
         await showPage(bot, chatId, 1);
+        if (TEXT_ONLY_ON_AZURE) {
+          await openTextSearchPrompt(bot, chatId);
+        }
       } catch (err) {
         await bot.deleteMessage(chatId, loadMsg.message_id).catch(() => {});
         bot.sendMessage(chatId, `❌ Could not load records: ${err.message}`);
@@ -181,6 +234,12 @@ module.exports = function registerRecords(bot) {
 
     // ── 🔍 Search ────────────────────────────────────────────────────────
     if (data.startsWith('rec_search:')) {
+      if (TEXT_ONLY_ON_AZURE) {
+        const chatId = parseInt(data.split(':')[1]);
+        bot.answerCallbackQuery(query.id);
+        await openTextSearchPrompt(bot, chatId);
+        return;
+      }
       const chatId  = parseInt(data.split(':')[1]);
       const session = sessions.get(chatId);
       if (!session) return bot.answerCallbackQuery(query.id);
@@ -245,10 +304,18 @@ module.exports = function registerRecords(bot) {
     await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
     const session = sessions.get(chatId);
     if (!session) return;
-    const term         = msg.text.trim();
-    session.rows       = filterRows(session.allRows, term);
-    session.searchTerm = term;
+    const term = msg.text.trim();
+    if (TEXT_ONLY_ON_AZURE && /^(all|clear|reset)$/i.test(term)) {
+      session.rows = session.allRows;
+      session.searchTerm = '';
+    } else {
+      session.rows = filterRows(session.allRows, term);
+      session.searchTerm = term;
+    }
     session.page       = 1;
     await showPage(bot, chatId, 1, session.msgId);
+    if (TEXT_ONLY_ON_AZURE) {
+      await openTextSearchPrompt(bot, chatId);
+    }
   });
 };
