@@ -373,7 +373,7 @@ class GoogleSheetsService {
 
   /**
    * Append a new session row to the "Sessions" sheet with Status = "Active".
-    * Columns: S/N | Sub-bot | Session Id | Sender | Display Name | Chat Id | Chat Type | Start Time | End Time | Status
+    * Columns: S/N | Sub-bot | Session Id | Sender | Display Name | Chat Id | Chat Type | Start Date | Start Time | End Date | End Time | Status
    *
     * @param {{ subBot: string, chatId: number|string, chatTitle: string|null, user: object, chatType: string, startTime: Date }} data
     * @returns {Promise<{sn: number, sessionId: string}|null>} Session row identifiers
@@ -383,6 +383,18 @@ class GoogleSheetsService {
     if (!id) { logger.warn('GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping session log'); return null; }
 
     const sn = await this.getNextSessionSerialNumber();
+
+    const formatDate = (date) => {
+      if (!date) return '';
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Singapore',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }).formatToParts(date);
+      const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+      return `${map.day}/${map.month}/${map.year}`;
+    };
 
     const formatTime = (date) => {
       if (!date) return '';
@@ -408,6 +420,7 @@ class GoogleSheetsService {
       ? data.chatType.charAt(0).toUpperCase() + data.chatType.slice(1)
       : 'Private';
 
+    const startDt = data.startTime || new Date();
     const row = [
       sn,
       data.subBot || 'Animal Identification',
@@ -416,13 +429,15 @@ class GoogleSheetsService {
       displayName,
       data.chatId != null ? String(data.chatId) : '',
       chatType,
-      formatTime(data.startTime || new Date()),
-      '',          // End Time — filled in when session ends
+      formatDate(startDt),  // Start Date
+      formatTime(startDt),  // Start Time
+      '',                   // End Date — filled in when session ends
+      '',                   // End Time — filled in when session ends
       'Active',
     ];
 
     try {
-      await this.appendRow(id, 'Sessions!A:J', row);
+      await this.appendRow(id, 'Sessions!A:L', row);
       logger.debug('Logged session start to Google Sheets', { sn, sessionId, chatId: data.chatId, sender });
       return { sn, sessionId };
     } catch (err) {
@@ -441,6 +456,18 @@ class GoogleSheetsService {
   async updateSessionEnd(sn, endTime, status) {
     const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     if (!id || sn == null) return;
+
+    const formatDate = (date) => {
+      if (!date) return '';
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Singapore',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }).formatToParts(date);
+      const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+      return `${map.day}/${map.month}/${map.year}`;
+    };
 
     const formatTime = (date) => {
       if (!date) return '';
@@ -468,9 +495,9 @@ class GoogleSheetsService {
       const sheets = this._getSheets();
       await sheets.spreadsheets.values.update({
         spreadsheetId: id,
-        range: `Sessions!I${sheetRow}:J${sheetRow}`,
+        range: `Sessions!J${sheetRow}:L${sheetRow}`,
         valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [[formatTime(endTime), status || 'Ended']] },
+        requestBody: { values: [[formatDate(endTime), formatTime(endTime), status || 'Ended']] },
       });
       logger.debug('Updated session end in Google Sheets', { sn, status });
     } catch (err) {
