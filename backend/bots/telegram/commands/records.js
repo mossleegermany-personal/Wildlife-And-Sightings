@@ -17,6 +17,30 @@ const sessions = new Map();
 
 // chatId → { promptMsgId }
 const searchPending = new Map();
+let cachedBotUsername = null;
+
+async function ensureBotUsername(bot) {
+  if (cachedBotUsername) return cachedBotUsername;
+
+  const envUsername = String(
+    process.env.TELEGRAM_BOT_USERNAME || process.env.BOT_USERNAME || process.env.TELEGRAM_BOT_NAME || ''
+  ).replace(/^@/, '').trim();
+
+  if (envUsername) {
+    cachedBotUsername = envUsername;
+    return cachedBotUsername;
+  }
+
+  try {
+    const me = await bot.getMe();
+    const resolved = String(me?.username || '').replace(/^@/, '').trim();
+    if (resolved) cachedBotUsername = resolved;
+  } catch (err) {
+    logger.warn('records: unable to resolve bot username for deep links', { error: err.message });
+  }
+
+  return cachedBotUsername;
+}
 
 /** Fetch all rows for this chat from Sheets, newest first. */
 async function fetchUserRows(chatId) {
@@ -45,9 +69,7 @@ function escHtml(str) {
 }
 
 function buildRecordDeepLink(globalIdx) {
-  const username = String(
-    process.env.TELEGRAM_BOT_USERNAME || process.env.BOT_USERNAME || process.env.TELEGRAM_BOT_NAME || ''
-  ).replace(/^@/, '').trim();
+  const username = String(cachedBotUsername || '').replace(/^@/, '').trim();
   if (!username) return '';
   return `https://t.me/${username}?start=canvas_0_${globalIdx}`;
 }
@@ -69,7 +91,7 @@ function buildPageText(pageRows, page, totalPages, isGroup, searchTerm) {
     const deepLink = buildRecordDeepLink(globalIdx);
     const speciesText = escHtml(species);
     const linkedSpecies = deepLink
-      ? `<a href="${deepLink}"><b>${speciesText}</b></a>`
+      ? `<a href="${deepLink}">${speciesText}</a>`
       : `<b>${speciesText}</b>`;
 
     text += `${num}. Species: ${linkedSpecies}`;
@@ -166,6 +188,7 @@ module.exports = function registerRecords(bot) {
       const chatId    = query.message.chat.id;
       const loadMsg = await bot.sendMessage(chatId, '⏳ Loading your records…');
       try {
+        await ensureBotUsername(bot);
         const allRows = await fetchUserRows(chatId);
         const isGroup = ['group', 'supergroup'].includes(query.message.chat.type);
         sessions.set(chatId, { allRows, rows: allRows, page: 1, msgId: null, isGroup, searchTerm: '' });
