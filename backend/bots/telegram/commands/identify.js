@@ -440,8 +440,12 @@ module.exports = function registerIdentify(bot) {
         }
         return;
       } else if (!hasActiveSession) {
-        // No active session: delete image, ignore silently
-        await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+        // No active session: keep group images untouched, ignore silently.
+        const chatType = msg.chat?.type;
+        const isGroupChat = chatType === 'group' || chatType === 'supergroup';
+        if (!isGroupChat) {
+          await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+        }
         return;
       } else {
         const activeBySheet = await hasActiveSessionBySheet(msg.chat, msg.from);
@@ -526,8 +530,12 @@ module.exports = function registerIdentify(bot) {
         }
         return;
       } else if (!hasActiveSession) {
-        // No active session: delete image, ignore silently
-        await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+        // No active session: keep group images untouched, ignore silently.
+        const chatType = msg.chat?.type;
+        const isGroupChat = chatType === 'group' || chatType === 'supergroup';
+        if (!isGroupChat) {
+          await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+        }
         return;
       } else {
         const activeBySheet = await hasActiveSessionBySheet(msg.chat, msg.from);
