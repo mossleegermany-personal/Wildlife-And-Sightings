@@ -1,0 +1,104 @@
+#!/usr/bin/env node
+/**
+ * Wildlife Sightings API — HTTP server entry point
+ *
+ * Follows the express-generator bin/www convention:
+ *   - Resolves and normalises the port
+ *   - Creates the HTTP server
+ *   - Pre-loads shared resources (eBird taxonomy)
+ *   - Handles startup errors and graceful shutdown
+ *
+ * Start:
+ *   node bin/www          (production)
+ *   nodemon bin/www       (development)
+ */
+
+require('dotenv').config();
+
+const { execSync } = require('child_process');
+
+const http = require('http');
+const app = require('../src/app');
+const logger = require('../src/utils/logger');
+const { EBirdService } = require('../bots/birdSighting/services/ebirdService');
+const { createBot } = require('../bots/telegram/bot');
+
+// ── Port normalisation ────────────────────────────────────────────────────────
+
+function normalizePort(val) {
+  const port = parseInt(val, 10);
+  if (isNaN(port)) return val;      // named pipe
+  if (port >= 0) return port;       // valid number
+  return false;
+}
+
+const PORT = normalizePort(process.env.PORT || '3001');
+app.set('port', PORT);
+
+// ── Create HTTP server ────────────────────────────────────────────────────────
+
+const server = http.createServer(app);
+
+// ── Pre-load shared resources ─────────────────────────────────────────────────
+
+const ebirdService = new EBirdService();
+ebirdService.preloadTaxonomy().catch((err) => {
+  logger.warn('eBird taxonomy preload failed — will retry on first request', {
+    error: err.message,
+  });
+});
+
+// ── Start Telegram bot ────────────────────────────────────────────────────────
+
+createBot();
+
+// ── Error handler ─────────────────────────────────────────────────────────────
+
+server.on('error', (err) => {
+  if (err.syscall !== 'listen') throw err;
+
+  const bind = typeof PORT === 'string' ? `pipe ${PORT}` : `port ${PORT}`;
+
+  switch (err.code) {
+    case 'EACCES':
+      logger.error(`${bind} requires elevated privileges`);
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      logger.warn(`${bind} is already in use — killing existing process and retrying...`);
+      try {
+        execSync(`lsof -ti :${PORT} | xargs kill -9`);
+      } catch (_) { /* nothing was using it */ }
+      setTimeout(() => server.listen(PORT), 1000);
+      break;
+    default:
+      throw err;
+  }
+});
+
+// ── Listening callback ────────────────────────────────────────────────────────
+
+server.on('listening', () => {
+  const addr = server.address();
+  const bind = typeof addr === 'string' ? `pipe ${addr}` : `port ${addr.port}`;
+  logger.info(`Wildlife Sightings API listening on ${bind}`);
+});
+
+// ── Graceful shutdown ─────────────────────────────────────────────────────────
+
+function shutdown(signal) {
+  logger.info(`Received ${signal}. Shutting down gracefully...`);
+  server.close(() => {
+    logger.info('HTTP server closed.');
+    process.exit(0);
+  });
+  // Force-exit after 10 s if connections are still open
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+
+server.listen(PORT);

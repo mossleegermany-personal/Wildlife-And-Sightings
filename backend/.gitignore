@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Environment variables — never commit real secrets
+.env
+
+# Google service account key files — never commit
+*.json
+!package.json
+!package-lock.json
+
+# Logs
+logs/
+*.log
+
+# Rate-limit persistence file (generated at runtime)
+rate_limits.json
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+
+# Editor directories
+.vscode/
+.idea/
+
+# Build output (if added later)
+dist/
+build/

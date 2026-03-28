@@ -1,0 +1,43 @@
+{
+  "name": "wildlife-sightings-backend",
+  "version": "1.0.0",
+  "description": "Unified REST API backend for Wildlife Identification and Bird Sightings — platform-agnostic, powers Telegram bots and more",
+  "main": "bin/www",
+  "scripts": {
+    "start": "node bin/www",
+    "dev": "nodemon bin/www"
+  },
+  "keywords": [
+    "wildlife",
+    "birds",
+    "ebird",
+    "gemini",
+    "identification",
+    "sightings",
+    "rest-api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@google/genai": "^1.46.0",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "exif-parser": "^0.1.12",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.4.0",
+    "form-data": "^4.0.5",
+    "googleapis": "^171.4.0",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "multer": "^2.1.1",
+    "node-telegram-bot-api": "^0.67.0",
+    "sharp": "^0.34.5",
+    "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
