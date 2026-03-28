@@ -5,7 +5,7 @@
  * Called from bin/www so both the REST API and the bot
  * run in the same process.
  *
- * Uses long-polling (no webhook required for local dev).
+ * Uses long-polling for local dev by default.
  * Switch to webhook in production by setting TELEGRAM_WEBHOOK_URL in .env.
  */
 
@@ -27,7 +27,7 @@ const registerRecords  = require('./commands/records');
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function createBot() {
+function createBot(app) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
 
   if (!token) {
@@ -35,7 +35,12 @@ function createBot() {
     return null;
   }
 
-  const bot = new TelegramBot(token, { polling: true });
+  const webhookBaseUrl = String(process.env.TELEGRAM_WEBHOOK_URL || '').trim();
+  const webhookPath = String(process.env.TELEGRAM_WEBHOOK_PATH || '/telegram/webhook').trim();
+  const webhookSecretToken = String(process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN || '').trim();
+  const useWebhook = Boolean(webhookBaseUrl);
+
+  const bot = new TelegramBot(token, useWebhook ? { webHook: { autoOpen: false } } : { polling: true });
 
   // Register menu callbacks (inline buttons)
   registerMainMenu(bot);
@@ -58,16 +63,47 @@ function createBot() {
     bot.sendMessage(msg.chat.id, '❓ Unknown command. Type /help to see all available commands.');
   });
 
-  // Polling error handler
-  bot.on('polling_error', (err) => {
-    logger.error('Telegram polling error', { error: err.message, code: err.code });
-  });
+  if (useWebhook) {
+    if (!app) {
+      logger.error('Webhook mode requires an Express app instance. Falling back to polling.');
+    } else {
+      const normalizedPath = webhookPath.startsWith('/') ? webhookPath : `/${webhookPath}`;
+      const webhookUrl = `${webhookBaseUrl.replace(/\/$/, '')}${normalizedPath}`;
+
+      app.post(normalizedPath, (req, res) => {
+        if (webhookSecretToken) {
+          const headerToken = req.get('x-telegram-bot-api-secret-token') || '';
+          if (headerToken !== webhookSecretToken) {
+            return res.status(401).json({ error: 'Invalid webhook secret token' });
+          }
+        }
+
+        bot.processUpdate(req.body);
+        return res.sendStatus(200);
+      });
+
+      const webhookOptions = webhookSecretToken ? { secret_token: webhookSecretToken } : undefined;
+      bot.setWebHook(webhookUrl, webhookOptions)
+        .then(() => {
+          logger.info('Telegram bot started (webhook)', { webhookUrl, webhookPath: normalizedPath });
+        })
+        .catch((err) => {
+          logger.error('Failed to set Telegram webhook', { error: err.message, webhookUrl });
+        });
+    }
+  } else {
+    // Polling error handler
+    bot.on('polling_error', (err) => {
+      logger.error('Telegram polling error', { error: err.message, code: err.code });
+    });
+
+    logger.info('Telegram bot started (polling)');
+  }
 
   bot.on('error', (err) => {
     logger.error('Telegram bot error', { error: err.message });
   });
 
-  logger.info('Telegram bot started (polling)');
   return bot;
 }
 

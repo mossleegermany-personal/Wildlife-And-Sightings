@@ -50,7 +50,7 @@ ebirdService.preloadTaxonomy().catch((err) => {
 
 // ── Start Telegram bot ────────────────────────────────────────────────────────
 
-createBot();
+createBot(app);
 
 // ── Error handler ─────────────────────────────────────────────────────────────
 
