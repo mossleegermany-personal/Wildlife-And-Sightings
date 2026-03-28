@@ -20,6 +20,21 @@ function getDisplayName(from) {
   return [from?.first_name, from?.last_name].filter(Boolean).join(' ').trim();
 }
 
+function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function getWelcomeName(from, senderChat) {
+  const fullName = getDisplayName(from);
+  if (fullName) return fullName;
+  if (from?.username) return `@${from.username}`;
+  if (senderChat?.title) return senderChat.title;
+  return 'there';
+}
+
 function getChannelName(chat, from, senderChat) {
   const type = senderChat?.type || chat?.type || '';
   if (type === 'group' || type === 'supergroup' || type === 'channel') {
@@ -97,7 +112,7 @@ module.exports = function registerStart(bot) {
       return;
     }
 
-    const name = msg.from?.first_name || senderChat?.title || 'there';
+    const name = escHtml(getWelcomeName(msg.from, senderChat));
     bot.sendMessage(
       chatId,
       `👋 Hello, <b>${name}</b>! Welcome to the <b>Wildlife &amp; Sightings Bot</b>.\n\n` +

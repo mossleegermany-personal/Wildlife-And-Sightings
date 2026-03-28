@@ -38,9 +38,29 @@ function createBot(app) {
   const webhookBaseUrl = String(process.env.TELEGRAM_WEBHOOK_URL || '').trim();
   const webhookPath = String(process.env.TELEGRAM_WEBHOOK_PATH || '/telegram/webhook').trim();
   const webhookSecretToken = String(process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN || '').trim();
-  const useWebhook = Boolean(webhookBaseUrl);
+  const isAzureHost = Boolean(process.env.WEBSITE_HOSTNAME);
+  const forceWebhook = String(process.env.TELEGRAM_FORCE_WEBHOOK || '').toLowerCase() === 'true';
+  const forcePolling = String(process.env.TELEGRAM_FORCE_POLLING || '').toLowerCase() === 'true';
 
-  const bot = new TelegramBot(token, useWebhook ? { webHook: { autoOpen: false } } : { polling: true });
+  let useWebhook = false;
+  if (forceWebhook && forcePolling) {
+    logger.warn('Both TELEGRAM_FORCE_WEBHOOK and TELEGRAM_FORCE_POLLING are true. Using webhook mode.');
+    useWebhook = true;
+  } else if (forceWebhook) {
+    useWebhook = true;
+  } else if (forcePolling) {
+    useWebhook = false;
+  } else {
+    // Default behaviour:
+    // - Azure App Service: webhook if URL configured
+    // - Localhost/dev: polling
+    useWebhook = isAzureHost && Boolean(webhookBaseUrl);
+  }
+
+  const bot = new TelegramBot(token, {
+    polling: false,
+    webHook: { autoOpen: false },
+  });
 
   // Register menu callbacks (inline buttons)
   registerMainMenu(bot);
@@ -66,6 +86,13 @@ function createBot(app) {
   if (useWebhook) {
     if (!app) {
       logger.error('Webhook mode requires an Express app instance. Falling back to polling.');
+      bot.deleteWebHook({ drop_pending_updates: false })
+        .catch(() => null)
+        .finally(() => {
+          bot.startPolling()
+            .then(() => logger.info('Telegram bot started (polling fallback)'))
+            .catch((err) => logger.error('Failed to start Telegram polling fallback', { error: err.message }));
+        });
     } else {
       const normalizedPath = webhookPath.startsWith('/') ? webhookPath : `/${webhookPath}`;
       const webhookUrl = `${webhookBaseUrl.replace(/\/$/, '')}${normalizedPath}`;
@@ -97,7 +124,13 @@ function createBot(app) {
       logger.error('Telegram polling error', { error: err.message, code: err.code });
     });
 
-    logger.info('Telegram bot started (polling)');
+    bot.deleteWebHook({ drop_pending_updates: false })
+      .catch(() => null)
+      .finally(() => {
+        bot.startPolling()
+          .then(() => logger.info('Telegram bot started (polling)'))
+          .catch((err) => logger.error('Failed to start Telegram polling', { error: err.message }));
+      });
   }
 
   bot.on('error', (err) => {

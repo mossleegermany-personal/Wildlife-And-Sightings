@@ -12,7 +12,6 @@ const PANEL_WIDTH = 400;
 const IMAGE_HEIGHT = 400;
 const COMPOSITE_WIDTH = PANEL_WIDTH * 2;
 const FONT_FAMILY = "'Noto Sans CJK SC','Noto Sans CJK TC','Microsoft YaHei','PingFang SC','Hiragino Sans GB','WenQuanYi Zen Hei','Arial Unicode MS','DejaVu Sans',sans-serif";
-const ASCII_FALLBACK_ENABLED = process.env.IMAGE_PANEL_ASCII_FALLBACK === 'true' || Boolean(process.env.WEBSITE_HOSTNAME);
 
 /** IUCN status colours used in the badge. */
 const IUCN_COLORS = {
@@ -44,7 +43,7 @@ function hasNonAscii(str) {
 function renderSafeText(text, fallback = '') {
   const value = String(text || '').trim();
   if (!value) return String(fallback || '').trim();
-  if (ASCII_FALLBACK_ENABLED && hasNonAscii(value) && fallback) {
+  if (hasNonAscii(value) && fallback) {
     return String(fallback).trim();
   }
   return value;
