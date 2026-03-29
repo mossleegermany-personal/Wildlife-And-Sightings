@@ -330,6 +330,139 @@ class EBirdService {
   }
 
   /**
+   * Historic observations on a date in a region.
+   *
+   * @param {string} regionCode
+   * @param {string|number} year
+   * @param {string|number} month
+   * @param {string|number} day
+   * @param {number} [maxResults=50]
+   */
+  async getHistoricObservations(regionCode, year, month, day, maxResults = 50) {
+    const response = await this.client.get(
+      `/data/obs/${regionCode.trim().toUpperCase()}/historic/${year}/${month}/${day}`,
+      { params: { maxResults } }
+    );
+    return response.data;
+  }
+
+  /**
+   * Species list (codes) ever recorded in a region.
+   *
+   * @param {string} regionCode
+   * @returns {Promise<string[]>} array of species codes
+   */
+  async getSpeciesList(regionCode) {
+    const response = await this.client.get(
+      `/product/spplist/${regionCode.trim().toUpperCase()}`
+    );
+    return Array.isArray(response.data) ? response.data : [];
+  }
+
+  /**
+   * Recent checklists feed for a region.
+   *
+   * @param {string} regionCode
+   * @param {number} [maxResults=10]
+   */
+  async getRecentChecklists(regionCode, maxResults = 10) {
+    const response = await this.client.get(
+      `/product/lists/${regionCode.trim().toUpperCase()}`,
+      { params: { maxResults } }
+    );
+    return response.data;
+  }
+
+  /**
+   * Regional statistics on a date.
+   *
+   * @param {string} regionCode
+   * @param {string|number} year
+   * @param {string|number} month
+   * @param {string|number} day
+   */
+  async getRegionalStats(regionCode, year, month, day) {
+    const response = await this.client.get(
+      `/product/stats/${regionCode.trim().toUpperCase()}/${year}/${month}/${day}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Top 100 eBird contributors in a region on a date.
+   *
+   * @param {string} regionCode
+   * @param {string|number} year
+   * @param {string|number} month
+   * @param {string|number} day
+   * @param {number} [maxResults=100]
+   */
+  async getTop100(regionCode, year, month, day, maxResults = 100) {
+    const response = await this.client.get(
+      `/product/top100/${regionCode.trim().toUpperCase()}/${year}/${month}/${day}`,
+      { params: { maxResults } }
+    );
+    return response.data;
+  }
+
+  /**
+   * Information about a hotspot location.
+   *
+   * @param {string} locId - e.g. 'L5765808'
+   */
+  async getHotspotInfo(locId) {
+    const response = await this.client.get(`/ref/hotspot/info/${locId}`);
+    return response.data;
+  }
+
+  /**
+   * Taxonomic forms (subspecies codes) for a species.
+   *
+   * @param {string} speciesCode - e.g. 'houspa'
+   */
+  async getTaxonomicForms(speciesCode) {
+    const response = await this.client.get(`/ref/taxon/forms/${speciesCode}`);
+    return response.data;
+  }
+
+  /**
+   * Region info (name and bounds).
+   *
+   * @param {string} regionCode
+   */
+  async getRegionInfo(regionCode) {
+    const response = await this.client.get(
+      `/ref/region/info/${regionCode.trim().toUpperCase()}`
+    );
+    return response.data;
+  }
+
+  /**
+   * List of sub-regions within a parent region.
+   *
+   * @param {string} regionType - 'country', 'subnational1', or 'subnational2'
+   * @param {string} parentRegionCode - e.g. 'US', 'US-NY'
+   */
+  async getSubRegions(regionType, parentRegionCode) {
+    const response = await this.client.get(
+      `/ref/region/list/${regionType}/${parentRegionCode.trim().toUpperCase()}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Regions that share a border with the given region.
+   *
+   * @param {string} regionCode
+   */
+  async getAdjacentRegions(regionCode) {
+    const response = await this.client.get(
+      `/ref/adjacent/${regionCode.trim().toUpperCase()}`
+    );
+    return response.data;
+  }
+
+  /**
    * Remove duplicate observations (same species + location + date).
    *
    * @param {Array} observations

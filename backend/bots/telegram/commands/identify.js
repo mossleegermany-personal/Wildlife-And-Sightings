@@ -19,7 +19,7 @@ function saveRateLimitStore(store) {
 
 function resetIfNeeded(store) {
   const now = new Date();
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore' }).format(now);
+    const today = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore' }).format(now);
   if (store.lastReset !== today) {
     store.users = {};
     store.groups = {};

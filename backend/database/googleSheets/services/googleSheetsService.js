@@ -193,6 +193,127 @@ class GoogleSheetsService {
   }
 
   /**
+   * Log a personal bird sighting from /addsighting to the "Bird Sightings" sheet.
+   * Columns: S/N | Date | Time | Sender | User | Platform | Command |
+   *          Search Query | Region Code | Total Sightings | Unique Species Count |
+   *          Species List | Species | Location | Observation Date | Count |
+   *          Observation Type | Notes
+   *
+   * @param {{ user: object, chat: object, species: string, location: string,
+   *            observationDate: string, count: number, obsType: string, notes: string }} data
+   */
+  async logBirdSightingCommand({ user, chat, species, location, observationDate, count, obsType, notes }) {
+    const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    if (!id) { logger.warn('GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping Bird Sightings log'); return; }
+
+    // S/N
+    let sn = 1;
+    try {
+      const rows = await this.getRows(id, 'Bird Sightings!A:A');
+      const dataRows = rows.slice(1).filter(r => r[0] && !isNaN(parseInt(r[0])));
+      if (dataRows.length > 0) sn = Math.max(...dataRows.map(r => parseInt(r[0]))) + 1;
+    } catch { /* default to 1 */ }
+
+    // Date: DD/MM/YYYY, Time: HH:MM:SS — both in GMT+8 (Asia/Singapore)
+    const sgParts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Singapore',
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date());
+    const sp  = Object.fromEntries(sgParts.map(p => [p.type, p.value]));
+    const date = `${sp.day}/${sp.month}/${sp.year}`;
+    const time = `${sp.hour}:${sp.minute}:${sp.second}`;
+
+    const chatType      = String(chat?.type || 'private').toLowerCase();
+    const isPrivate     = chatType === 'private';
+    const personName    = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
+    const displayName   = isPrivate
+      ? (personName || 'Unknown')
+      : String(chat?.title || '').trim() || 'Unknown';
+    const sender        = user?.username ? `@${user.username}` : (personName || 'Unknown');
+
+    const row = [
+      sn,                          // A: S/N
+      date,                        // B: Date
+      time,                        // C: Time
+      sender,                      // D: Sender
+      displayName,                 // E: User
+      'Telegram',                  // F: Platform
+      '/addsighting',              // G: Command
+      species,                     // H: Search Query (species entered)
+      '',                          // I: Region Code
+      String(count),               // J: Total Sightings
+      '1',                         // K: Unique Species Count
+      species,                     // L: Species List
+      species,                     // M: Species
+      location || '',              // N: Location
+      observationDate || '',       // O: Observation Date
+      String(count),               // P: Count
+      obsType || 'Incidental',     // Q: Observation Type
+      notes || '',                 // R: Notes
+    ];
+
+    return this.appendRow(id, 'Bird Sightings!A:R', row);
+  }
+
+  /**
+   * Log a bird API query (non-personal-sighting) to the "Bird Sightings" sheet.
+   * Columns A–L are populated; M–R are left empty (those are for /addsighting).
+   *
+   * @param {{ user: object, chat: object, command: string, searchQuery: string,
+   *            regionCode: string, totalSightings: number,
+   *            uniqueSpeciesCount: number, speciesList: string }} params
+   */
+  async logBirdQuery({ user, chat, command, searchQuery, regionCode, totalSightings, uniqueSpeciesCount, speciesList }) {
+    const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    if (!id) { logger.warn('GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping Bird Sightings log'); return; }
+
+    let sn = 1;
+    try {
+      const rows = await this.getRows(id, 'Bird Sightings!A:A');
+      const dataRows = rows.slice(1).filter(r => r[0] && !isNaN(parseInt(r[0])));
+      if (dataRows.length > 0) sn = Math.max(...dataRows.map(r => parseInt(r[0]))) + 1;
+    } catch { /* default to 1 */ }
+
+    const sgParts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Singapore',
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date());
+    const sp   = Object.fromEntries(sgParts.map(p => [p.type, p.value]));
+    const date = `${sp.day}/${sp.month}/${sp.year}`;
+    const time = `${sp.hour}:${sp.minute}:${sp.second}`;
+
+    const chatType    = String(chat?.type || 'private').toLowerCase();
+    const isPrivate   = chatType === 'private';
+    const personName  = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
+    const displayName = isPrivate
+      ? (personName || 'Unknown')
+      : String(chat?.title || '').trim() || 'Unknown';
+    const sender = user?.username ? `@${user.username}` : (personName || 'Unknown');
+
+    const row = [
+      sn,                                // A: S/N
+      date,                              // B: Date
+      time,                              // C: Time
+      sender,                            // D: Sender
+      displayName,                       // E: User
+      'Telegram',                        // F: Platform
+      command || '',                     // G: Command
+      searchQuery || '',                 // H: Search Query
+      regionCode || '',                  // I: Region Code
+      String(totalSightings || 0),       // J: Total Sightings
+      String(uniqueSpeciesCount || 0),   // K: Unique Species Count
+      speciesList || '',                 // L: Species List
+      '', '', '', '', '', '',            // M–R: personal sighting fields (empty)
+    ];
+
+    return this.appendRow(id, 'Bird Sightings!A:R', row);
+  }
+
+  /**
    * Log a bird sighting to the Sightings sheet.
    * Expected columns: Timestamp | CommonName | SciName | RegionCode | Location |
    *   Lat | Lng | ObsDate | Count | Notes | eBirdUrl

@@ -14,6 +14,8 @@
 // chatId -> messageId for the pending "New Identification" helper prompt
 const identifyPromptMessages = new Map();
 const sheetsService = require('../../../database/googleSheets/services/googleSheetsService');
+const { startAddSightingSession }  = require('../commands/addSighting');
+const { SIGHTINGS_CATEGORY_MENU }  = require('../commands/birdMenu');
 
 // userId -> { chatId, chatTitle, chatType, sender, startTime, sessionSn, sessionId } for active sessions
 const sessionStartTimes = new Map();
@@ -162,20 +164,14 @@ const CALLBACKS = {
     bot.answerCallbackQuery(query.id);
     bot.sendMessage(
       query.message.chat.id,
-      `<b>🐦 Bird Sightings</b>\n\n` +
-      `Use these commands to explore bird sightings:\n\n` +
-      `/nearby &lt;lat&gt; &lt;lng&gt;\n` +
-      `<i>Recent sightings near a GPS coordinate</i>\n\n` +
-      `/region &lt;code&gt;\n` +
-      `<i>Recent sightings in a region (e.g. US-CA, MY-10)</i>\n\n` +
-      `/notable &lt;code&gt;\n` +
-      `<i>Rare or notable sightings in a region</i>\n\n` +
-      `/hotspots &lt;lat&gt; &lt;lng&gt;\n` +
-      `<i>Top birding hotspots near a location</i>\n\n` +
-      `/search &lt;name&gt;\n` +
-      `<i>Search species by common or scientific name</i>`,
-      { parse_mode: 'HTML' }
+      `<b>🐦 Bird Sightings</b>\n\nChoose a category to explore:`,
+      SIGHTINGS_CATEGORY_MENU
     );
+  },
+
+  menu_addsighting(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    startAddSightingSession(bot, query.message.chat.id, query.from, query.message.chat);
   },
 };
 
