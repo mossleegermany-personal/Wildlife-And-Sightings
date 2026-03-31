@@ -163,7 +163,7 @@ class EBirdService {
     const clean = regionCode.trim().toUpperCase();
     logger.debug('Fetching observations', { region: clean });
     const response = await this.client.get(`/data/obs/${clean}/recent`, {
-      params: { back, maxResults },
+      params: { back, maxResults, detail: 'full' },
     });
     return response.data;
   }
@@ -193,7 +193,7 @@ class EBirdService {
   async getSpeciesObservations(regionCode, speciesCode, back = 14) {
     const response = await this.client.get(
       `/data/obs/${regionCode.trim().toUpperCase()}/recent/${speciesCode}`,
-      { params: { back } }
+      { params: { back, detail: 'full' } }
     );
     return response.data;
   }
@@ -209,9 +209,77 @@ class EBirdService {
    */
   async getNearbyObservations(lat, lng, dist = 25, back = 14, maxResults = 20) {
     const response = await this.client.get('/data/obs/geo/recent', {
-      params: { lat, lng, dist, back, maxResults },
+      params: { lat, lng, dist, back, maxResults, detail: 'full' },
     });
     return response.data;
+  }
+
+  /**
+   * Nearby observations of a specific species based on GPS coordinates.
+   *
+   * @param {number} lat
+   * @param {number} lng
+   * @param {string} speciesCode
+   * @param {number} [dist=25]
+   * @param {number} [back=14]
+   */
+  async getNearbySpeciesObservations(lat, lng, speciesCode, dist = 25, back = 14) {
+    const response = await this.client.get(`/data/obs/geo/recent/${speciesCode}`, {
+      params: { lat, lng, dist, back, detail: 'full' },
+    });
+    return response.data;
+  }
+
+  /**
+   * Full checklist details including per-species comments.
+   *
+   * @param {string} subId  - eBird submission ID e.g. "S312315508"
+   * @returns {Promise<Object>} checklist object with `obs` array
+   */
+  async getChecklist(subId) {
+    const response = await this.client.get(`/product/checklist/view/${subId}`);
+    return response.data;
+  }
+
+  /**
+   * Fetch Macaulay Library assets for a specific eBird observation ID.
+   * Uses the public ML catalog search API (no auth required).
+   * Returns { photos: string[], audios: string[], videos: string[] } or null.
+   *
+   * @param {string} obsId  - e.g. "OBS4235835476"
+   */
+  async getMLMediaForChecklist(speciesCode, subId) {
+    try {
+      const response = await axios.get('https://search.macaulaylibrary.org/api/v1/search', {
+        params: { taxonCode: speciesCode, count: 100 },
+        timeout: 5000,
+      });
+      const content = response.data?.results?.content;
+      if (!Array.isArray(content)) return null;
+      // Filter to only assets explicitly linked to this checklist
+      const mine = content.filter(a => a.eBirdChecklistId === subId);
+      if (mine.length === 0) return null;
+      const result = { photos: [], audios: [], videos: [] };
+      for (const asset of mine) {
+        const type = (asset.mediaType || '').toLowerCase();
+        // Photos: CDN mediaUrl opens as a plain image inline
+        // Audio/Video: specimenUrl opens the ML asset page with its player (CDN URLs trigger a download in Telegram)
+        if (type === 'audio' || type === 'sound') {
+          const url = asset.specimenUrl || '';
+          if (url) result.audios.push(url);
+        } else if (type === 'video') {
+          const url = asset.specimenUrl || '';
+          if (url) result.videos.push(url);
+        } else {
+          const url = asset.mediaUrl || asset.largeUrl || '';
+          if (url) result.photos.push(url);
+        }
+      }
+      if (!result.photos.length && !result.audios.length && !result.videos.length) return null;
+      return result;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -264,7 +332,7 @@ class EBirdService {
    */
   async getHotspotObservations(locId, back = 14, maxResults = 100) {
     const response = await this.client.get(`/data/obs/${locId}/recent`, {
-      params: { back, maxResults },
+      params: { back, maxResults, detail: 'full' },
     });
     return response.data;
   }
@@ -460,6 +528,40 @@ class EBirdService {
       `/ref/adjacent/${regionCode.trim().toUpperCase()}`
     );
     return response.data;
+  }
+
+  /**
+   * Search hotspots by name within a region (fuzzy matching).
+   *
+   * @param {string} regionCode
+   * @param {string} searchQuery
+   * @param {number} [maxResults=10]
+   */
+  async searchHotspotsByName(regionCode, searchQuery, maxResults = 10) {
+    const hotspots = await this.getHotspots(regionCode);
+    if (!Array.isArray(hotspots) || hotspots.length === 0) return [];
+    const query = searchQuery.toLowerCase();
+    const queryWords = query.split(/\s+/);
+    const matches = hotspots.filter(spot => {
+      const name = (spot.locName || '').toLowerCase();
+      return queryWords.some(w => name.includes(w)) || name.includes(query);
+    });
+    matches.sort((a, b) => (b.numSpeciesAllTime || 0) - (a.numSpeciesAllTime || 0));
+    return matches.slice(0, maxResults);
+  }
+
+  /**
+   * Popular hotspots in a region sorted by species count.
+   *
+   * @param {string} regionCode
+   * @param {number} [limit=10]
+   */
+  async getPopularHotspots(regionCode, limit = 10) {
+    const hotspots = await this.getHotspots(regionCode);
+    if (!Array.isArray(hotspots) || hotspots.length === 0) return [];
+    return hotspots
+      .sort((a, b) => (b.numSpeciesAllTime || 0) - (a.numSpeciesAllTime || 0))
+      .slice(0, limit);
   }
 
   /**

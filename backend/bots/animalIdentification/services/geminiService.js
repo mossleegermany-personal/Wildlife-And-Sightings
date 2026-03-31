@@ -125,7 +125,11 @@ CRITICAL ACCURACY RULES:
 - Consider similar species that could be confused — rule them out explicitly
 - Prioritize species identification from visible morphology first, then use habitat/season/location as supporting evidence.
 - For occluded or blurry animals, identify at the highest reliable taxonomic rank and explain why finer rank is uncertain.
-- Set sex to "Unknown" unless sexual dimorphism is clearly visible from the image.
+- SEX DETERMINATION (use ALL of the following in order):
+  1. SPECIES KNOWLEDGE: Once you have identified the species, recall its sexual dimorphism from authoritative sources (eBird species accounts, GBIF taxon descriptions, field guides). Know which features differ between sexes — e.g. plumage colour, bill colour, eye colour, orbital ring, crest, wing markings, tail length, facial pattern.
+  2. PLUMAGE ANALYSIS: Examine the visible plumage, markings, bill, eye, and any other features in this image. Explicitly match them against the known male/female descriptions for this species.
+  3. DECISION: Set sex to "Male" or "Female" when the visible features match the species' dimorphic characteristics. Set sexConfidence (0.0–1.0) to reflect how clearly the diagnostic features are visible. Only set sex to "Unknown" when the species is monomorphic, the animal is juvenile (pre-adult plumage), or the relevant features are entirely obscured/invisible.
+  4. Set sexMethod to one of: "from_image_plumage" (features clearly visible), "from_species_knowledge" (features partially visible but consistent with species dimorphism), "inferred" (low visibility but consistent with species patterns), "unknown" (cannot determine).
 - Set breedingPlumage to "Yes" only if ornamental or nuptial plumage is clearly visible (elongated tail streamers, vivid breeding colours, crests). Otherwise set "No" or "Unknown".
 
 Return JSON only:
@@ -167,6 +171,7 @@ Return JSON only:
   ],
   "sex": "Male/Female/Unknown",
   "sexConfidence": 0.0,
+  "sexMethod": "from_image_plumage/from_species_knowledge/inferred/unknown",
   "lifeStage": "Adult/Juvenile/Immature/Unknown (choose exactly one; never combine as Juvenile/Immature)",
   "morph": "color morph or null",
   "breedingPlumage": "Yes/No/Unknown — set Yes only if the bird visibly shows breeding plumage (elongated feathers, vivid colours, ornamental crests/streamers clearly different from non-breeding)",

@@ -90,11 +90,11 @@ class GoogleSheetsService {
 
   /**
    * Log an animal identification event to the "Animal Identification" sheet.
-    * Columns: S/N | Chat Id | Session Id | User Name | Display Name | Platform | Date | Time | Country | Species | Image
+   * Columns: S/N | Chat Id | Session Id | User Name | Display Name | Sender | Platform | Date | Time | Country | Species | Image
    *
-    * @param {{ user: object, species: string|null, canvasFileId: string|null, country: string|null, chatId: number|string|null, sessionId: string|null, chatType?: string, channelName?: string }} params
+   * @param {{ user: object, species: string|null, canvasFileId: string|null, country: string|null, chatId: number|string|null, sessionId: string|null, chatType?: string, channelName?: string }} params
    */
-    async logAnimalIdentification({ user, species, canvasFileId, country, chatId, sessionId, chatType, channelName }) {
+  async logAnimalIdentification({ user, species, canvasFileId, location, country, chatId, sessionId, chatType, channelName }) {
     const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     if (!id) { logger.warn('GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping log'); return; }
 
@@ -105,25 +105,33 @@ class GoogleSheetsService {
     const personDisplayName = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
     const normalizedChatType = String(chatType || '').trim().toLowerCase();
     const isPrivate = normalizedChatType === 'private';
-    const displayName = isPrivate
-      ? (personDisplayName || 'Unknown')
-      : String(channelName || '').trim();
+    const displayName = personDisplayName || 'Unknown';
+    const channelNameValue = isPrivate ? '' : String(channelName || '').trim();
+    // Channel Id: the group/channel's Telegram ID — blank for private chats.
+    const channelIdValue = isPrivate ? '' : (chatId != null ? String(chatId) : '');
     const userName = user?.username ? `@${user.username}` : '';
+    const sender = userName || personDisplayName || 'Unknown';
+    const chatTypeFmt = normalizedChatType.charAt(0).toUpperCase() + normalizedChatType.slice(1);
 
     const row = [
-      sn,
-      chatId != null ? String(chatId) : '',
-      sessionId || '',
-      userName,
-      displayName || 'Unknown',
-      'Telegram',
-      date,
-      time,
-      country || '',
-      species || '',
-      canvasFileId || '',
+      sn,                                       // A [0]:  S/N
+      chatId != null ? String(chatId) : '',     // B [1]:  Chat Id
+      channelIdValue,                           // C [2]:  Channel Id (group/channel only)
+      sessionId || '',                          // D [3]:  Session Id
+      userName,                                 // E [4]:  User Name
+      displayName || 'Unknown',                 // F [5]:  Display Name (private only)
+      channelNameValue,                         // G [6]:  Channel Name (group/channel only)
+      sender,                                   // H [7]:  Sender
+      chatTypeFmt,                              // I [8]:  Chat Type
+      'Telegram',                               // J [9]:  Platform
+      `'${date}`,                               // K [10]: Date (prefixed ' to force text)
+      `'${time}`,                               // L [11]: Time (prefixed ' to force text)
+      location || '',                           // M [12]: Location
+      country || '',                            // N [13]: Country
+      species || '',                            // O [14]: Species
+      canvasFileId || '',                       // P [15]: Image
     ];
-    const appendRes = await this.appendRow(id, `${SHEET_NAME}!A:K`, row);
+    const appendRes = await this.appendRow(id, `${SHEET_NAME}!A:P`, row);
 
     // Clear bold formatting from the newly appended data row
     try {
@@ -136,18 +144,18 @@ class GoogleSheetsService {
           spreadsheetId: id,
           requestBody: {
             requests: [
-              // Remove bold from all columns
+              // Remove bold from all 16 columns
               {
                 repeatCell: {
-                  range: { sheetId: 0, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 11 },
+                  range: { sheetId: 0, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 16 },
                   cell: { userEnteredFormat: { textFormat: { bold: false } } },
                   fields: 'userEnteredFormat.textFormat.bold',
                 },
               },
-              // Force column E (Time) to 24-hour HH:mm display
+              // Force column L (Time, index 11) to plain text so 24-hr display is preserved
               {
                 repeatCell: {
-                  range: { sheetId: 0, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 7, endColumnIndex: 8 },
+                  range: { sheetId: 0, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 11, endColumnIndex: 12 },
                   cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },
                   fields: 'userEnteredFormat.numberFormat',
                 },
@@ -158,7 +166,7 @@ class GoogleSheetsService {
       }
     } catch { /* formatting is best-effort, never block the log */ }
 
-    logger.debug('Logged identification to Google Sheets', { sn, userName, displayName, chatId, sessionId, chatType: normalizedChatType });
+    logger.debug('Logged identification to Google Sheets', { sn, userName, displayName, sender, chatId, sessionId, chatType: normalizedChatType });
   }
 
   /**
@@ -194,15 +202,15 @@ class GoogleSheetsService {
 
   /**
    * Log a personal bird sighting from /addsighting to the "Bird Sightings" sheet.
-   * Columns: S/N | Date | Time | Sender | User | Platform | Command |
-   *          Search Query | Region Code | Total Sightings | Unique Species Count |
-   *          Species List | Species | Location | Observation Date | Count |
-   *          Observation Type | Notes
+   * Columns (A:W, 23 cols): S/N | Date | Time | Chat Id | Channel Id | Session Id |
+   *   User Name | Display Name | Channel Name | Sender | Chat Type | Command | Search Query |
+   *   Location | Country | Total Sightings | Count | Species List |
+   *   Species | Observation Date | Count | Observation Type | Notes
    *
    * @param {{ user: object, chat: object, species: string, location: string,
    *            observationDate: string, count: number, obsType: string, notes: string }} data
    */
-  async logBirdSightingCommand({ user, chat, species, location, observationDate, count, obsType, notes }) {
+  async logBirdSightingCommand({ user, chat, sessionId, species, location, observationDate, count, obsType, notes }) {
     const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     if (!id) { logger.warn('GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping Bird Sightings log'); return; }
 
@@ -214,7 +222,7 @@ class GoogleSheetsService {
       if (dataRows.length > 0) sn = Math.max(...dataRows.map(r => parseInt(r[0]))) + 1;
     } catch { /* default to 1 */ }
 
-    // Date: DD/MM/YYYY, Time: HH:MM:SS — both in GMT+8 (Asia/Singapore)
+    // Date: dd/mm/yyyy, Time: hh:mm:ss hrs — both in GMT+8 (Asia/Singapore)
     const sgParts = new Intl.DateTimeFormat('en-GB', {
       timeZone: 'Asia/Singapore',
       day: '2-digit', month: '2-digit', year: 'numeric',
@@ -222,50 +230,62 @@ class GoogleSheetsService {
       hour12: false,
     }).formatToParts(new Date());
     const sp  = Object.fromEntries(sgParts.map(p => [p.type, p.value]));
-    const date = `${sp.day}/${sp.month}/${sp.year}`;
-    const time = `${sp.hour}:${sp.minute}:${sp.second}`;
+    const date = `'${sp.day}/${sp.month}/${sp.year}`;
+    const time = `'${sp.hour}:${sp.minute}:${sp.second} hrs`;
 
-    const chatType      = String(chat?.type || 'private').toLowerCase();
-    const isPrivate     = chatType === 'private';
-    const personName    = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
-    const displayName   = isPrivate
-      ? (personName || 'Unknown')
-      : String(chat?.title || '').trim() || 'Unknown';
-    const sender        = user?.username ? `@${user.username}` : (personName || 'Unknown');
+    const chatTypeRaw = String(chat?.type || 'private').toLowerCase();
+    const isPrivate   = chatTypeRaw === 'private';
+    const chatTypeFmt = chatTypeRaw.charAt(0).toUpperCase() + chatTypeRaw.slice(1);
+    const chatIdStr   = chat?.id != null ? String(chat.id) : '';
+    const channelId   = isPrivate ? '' : chatIdStr;
+    const channelName = isPrivate ? '' : (chat?.title || '');
+    const personName  = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
+    const userName    = user?.username ? `@${user.username}` : '';
+    const displayName = personName || (isPrivate ? 'Unknown' : '');
+    const sender      = user?.username ? `@${user.username}` : (personName || 'Unknown');
 
     const row = [
-      sn,                          // A: S/N
-      date,                        // B: Date
-      time,                        // C: Time
-      sender,                      // D: Sender
-      displayName,                 // E: User
-      'Telegram',                  // F: Platform
-      '/addsighting',              // G: Command
-      species,                     // H: Search Query (species entered)
-      '',                          // I: Region Code
-      String(count),               // J: Total Sightings
-      '1',                         // K: Unique Species Count
-      species,                     // L: Species List
-      species,                     // M: Species
-      location || '',              // N: Location
-      observationDate || '',       // O: Observation Date
-      String(count),               // P: Count
-      obsType || 'Incidental',     // Q: Observation Type
-      notes || '',                 // R: Notes
+      sn,                          // A [0]:  S/N
+      date,                        // B [1]:  Date (dd/mm/yyyy)
+      time,                        // C [2]:  Time (hh:mm:ss hrs)
+      chatIdStr,                   // D [3]:  Chat Id
+      channelId,                   // E [4]:  Channel Id (blank for private)
+      sessionId || '',             // F [5]:  Session Id
+      userName,                    // G [6]:  User Name (@username or blank)
+      displayName,                 // H [7]:  Display Name
+      channelName,                 // I [8]:  Channel Name (blank for private)
+      sender,                      // J [9]:  Sender
+      chatTypeFmt,                 // K [10]: Chat Type
+      '/addsighting',              // L [11]: Command
+      species,                     // M [12]: Search Query (species entered)
+      location || '',              // N [13]: Location
+      '',                          // O [14]: Country
+      String(count),               // P [15]: Total Sightings
+      '1',                         // Q [16]: Count (Unique Species Count)
+      species,                     // R [17]: Species List
+      species,                     // S [18]: Species (personal sighting)
+      observationDate || '',       // T [19]: Observation Date (personal sighting)
+      String(count),               // U [20]: Count (personal sighting)
+      obsType || 'Incidental',     // V [21]: Observation Type (personal sighting)
+      notes || '',                 // W [22]: Notes (personal sighting)
     ];
 
-    return this.appendRow(id, 'Bird Sightings!A:R', row);
+    return this.appendRow(id, 'Bird Sightings!A:W', row);
   }
 
   /**
    * Log a bird API query (non-personal-sighting) to the "Bird Sightings" sheet.
-   * Columns A–L are populated; M–R are left empty (those are for /addsighting).
+   * Columns (A:W, 23 cols): S/N | Date | Time | Chat Id | Channel Id | Session Id |
+   *   User Name | Display Name | Channel Name | Sender | Chat Type | Command | Search Query |
+   *   Location | Country | Total Sightings | Count | Species List |
+   *   Species | Observation Date | Count | Observation Type | Notes
+   * Cols A–R are populated; S–W (personal sighting fields) are left blank.
    *
    * @param {{ user: object, chat: object, command: string, searchQuery: string,
    *            regionCode: string, totalSightings: number,
    *            uniqueSpeciesCount: number, speciesList: string }} params
    */
-  async logBirdQuery({ user, chat, command, searchQuery, regionCode, totalSightings, uniqueSpeciesCount, speciesList }) {
+  async logBirdQuery({ user, chat, sessionId, command, searchQuery, regionCode, totalSightings, uniqueSpeciesCount, speciesList }) {
     const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     if (!id) { logger.warn('GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping Bird Sightings log'); return; }
 
@@ -283,34 +303,71 @@ class GoogleSheetsService {
       hour12: false,
     }).formatToParts(new Date());
     const sp   = Object.fromEntries(sgParts.map(p => [p.type, p.value]));
-    const date = `${sp.day}/${sp.month}/${sp.year}`;
-    const time = `${sp.hour}:${sp.minute}:${sp.second}`;
+    const date = `'${sp.day}/${sp.month}/${sp.year}`;
+    const time = `'${sp.hour}:${sp.minute}:${sp.second} hrs`;
 
-    const chatType    = String(chat?.type || 'private').toLowerCase();
-    const isPrivate   = chatType === 'private';
+    const chatTypeRaw = String(chat?.type || 'private').toLowerCase();
+    const isPrivate   = chatTypeRaw === 'private';
+    const chatTypeFmt = chatTypeRaw.charAt(0).toUpperCase() + chatTypeRaw.slice(1);
+    const chatIdStr   = chat?.id != null ? String(chat.id) : '';
+    const channelId   = isPrivate ? '' : chatIdStr;
+    const channelName = isPrivate ? '' : (chat?.title || '');
     const personName  = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
-    const displayName = isPrivate
-      ? (personName || 'Unknown')
-      : String(chat?.title || '').trim() || 'Unknown';
-    const sender = user?.username ? `@${user.username}` : (personName || 'Unknown');
+    const userName    = user?.username ? `@${user.username}` : '';
+    const displayName = personName || (isPrivate ? 'Unknown' : '');
+    const sender      = user?.username ? `@${user.username}` : (personName || 'Unknown');
 
     const row = [
-      sn,                                // A: S/N
-      date,                              // B: Date
-      time,                              // C: Time
-      sender,                            // D: Sender
-      displayName,                       // E: User
-      'Telegram',                        // F: Platform
-      command || '',                     // G: Command
-      searchQuery || '',                 // H: Search Query
-      regionCode || '',                  // I: Region Code
-      String(totalSightings || 0),       // J: Total Sightings
-      String(uniqueSpeciesCount || 0),   // K: Unique Species Count
-      speciesList || '',                 // L: Species List
-      '', '', '', '', '', '',            // M–R: personal sighting fields (empty)
+      sn,                                // A [0]:  S/N
+      date,                              // B [1]:  Date (dd/mm/yyyy)
+      time,                              // C [2]:  Time (hh:mm:ss hrs)
+      chatIdStr,                         // D [3]:  Chat Id
+      channelId,                         // E [4]:  Channel Id (blank for private)
+      sessionId || '',                   // F [5]:  Session Id
+      userName,                          // G [6]:  User Name (@username or blank)
+      displayName,                       // H [7]:  Display Name
+      channelName,                       // I [8]:  Channel Name (blank for private)
+      sender,                            // J [9]:  Sender
+      chatTypeFmt,                       // K [10]: Chat Type
+      command || '',                     // L [11]: Command
+      searchQuery || '',                 // M [12]: Search Query
+      '',                                // N [13]: Location (blank — region stored in Country)
+      regionCode || '',                  // O [14]: Country (region/country code e.g. SG)
+      String(totalSightings || 0),       // P [15]: Total Sightings
+      String(uniqueSpeciesCount || 0),   // Q [16]: Count (Unique Species Count)
+      speciesList || '',                 // R [17]: Species List
+      '', '', '', '', '',                // S–W [18–22]: personal sighting fields (blank)
     ];
 
-    return this.appendRow(id, 'Bird Sightings!A:R', row);
+    return this.appendRow(id, 'Bird Sightings!A:W', row);
+  }
+
+  /**
+   * Get personal bird sightings logged via /addsighting for a given sender.
+   * Reads from "Bird Sightings" sheet (columns A:V) and filters by command and sender.
+   *
+   * @param {string} sender  — @username or display name to filter by
+   * @returns {Promise<Array<{species:string, location:string, observationDate:string, count:string, obsType:string, notes:string}>>}
+   */
+  async getPersonalBirdSightings(sender) {
+    const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    if (!id) return [];
+    try {
+      const rows = await this.getRows(id, 'Bird Sightings!A2:W5000');
+      return rows
+        .filter(r => r[11] === '/addsighting' && r[9] === sender)
+        .map(r => ({
+          species:         r[18] || '',
+          location:        r[13] || '',
+          observationDate: r[19] || '',
+          count:           r[20] || '',
+          obsType:         r[21] || '',
+          notes:           r[22] || '',
+        }));
+    } catch (err) {
+      logger.warn('getPersonalBirdSightings failed', { error: err.message });
+      return [];
+    }
   }
 
   /**
@@ -395,13 +452,13 @@ class GoogleSheetsService {
   }
 
   /**
-   * Get next serial number for the "Telegram Group" sheet.
+   * Get next serial number for the "Telegram" sheet.
    * @returns {Promise<number>}
    */
   async getNextTelegramGroupSerialNumber() {
     try {
       const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-      const rows = await this.getRows(id, 'Telegram Group!A:A');
+      const rows = await this.getRows(id, 'Telegram!A:A');
       const dataRows = rows.slice(1).filter(r => r[0] && !isNaN(parseInt(r[0])));
       if (dataRows.length === 0) return 1;
       return Math.max(...dataRows.map(r => parseInt(r[0]))) + 1;
@@ -411,15 +468,18 @@ class GoogleSheetsService {
   }
 
   /**
-   * Log Telegram /start events to "Telegram Group" sheet.
-    * Columns: S/N | Chat Id | Chat Type | Sender | Display Name | Channel Name | Chat Type
+   * Log Telegram /start events to "Telegram" sheet.
+   * Columns: S/N | Chat Type | Chat Id | Channel Id | Sender | Display Name | Channel Name
    *
-    * @param {{ chatId: number|string, chatType: string, sender: string, displayName: string, channelName: string }} data
+   * Channel Id and Channel Name are only populated for group/channel chats.
+   * Display Name is only populated for private chats.
+   *
+   * @param {{ chatId: number|string, channelId: number|string|null, chatType: string, sender: string, displayName: string, channelName: string }} data
    */
   async logTelegramGroupStart(data) {
     const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     if (!id) {
-      logger.warn('GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping Telegram Group log');
+      logger.warn('GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping Telegram log');
       return null;
     }
 
@@ -433,71 +493,64 @@ class GoogleSheetsService {
     const chatTypeLower = String(data.chatType || '').trim().toLowerCase();
     const chatIdValue = data.chatId != null ? String(data.chatId) : '';
     const isPrivate = chatTypeLower === 'private';
-    const displayNameValue = isPrivate ? (data.displayName || '') : '';
+    const channelIdValue = isPrivate ? '' : (data.channelId != null ? String(data.channelId) : '');
+    const displayNameValue = data.displayName || '';
     const channelNameValue = isPrivate ? '' : (data.channelName || '');
 
+    const buildRow = (sn) => [
+      sn,                          // A: S/N
+      chatType,                    // B: Chat Type
+      chatIdValue,                 // C: Chat Id
+      channelIdValue,              // D: Channel Id (group/channel only)
+      data.sender || 'Unknown',    // E: Sender
+      displayNameValue,            // F: Display Name (private only)
+      channelNameValue,            // G: Channel Name (group/channel only)
+    ];
+
     try {
-      // Enforce uniqueness by Chat Id (column B): update existing row when found.
-      const rows = await this.getRows(id, 'Telegram Group!A:G');
-      const existingIndex = rows.findIndex((r, i) => i > 0 && String(r[1] || '').trim() === chatIdValue);
+      // Enforce uniqueness by Chat Id (column C): update existing row when found.
+      const rows = await this.getRows(id, 'Telegram!A:G');
+      const existingIndex = rows.findIndex((r, i) => i > 0 && String(r[2] || '').trim() === chatIdValue);
 
       if (existingIndex !== -1) {
-        const sheetRow = existingIndex + 1; // 1-based row index including header
+        const sheetRow = existingIndex + 1;
         const existingSn = rows[existingIndex]?.[0] || '';
 
         const sheets = this._getSheets();
         await sheets.spreadsheets.values.update({
           spreadsheetId: id,
-          range: `Telegram Group!A${sheetRow}:G${sheetRow}`,
+          range: `Telegram!A${sheetRow}:G${sheetRow}`,
           valueInputOption: 'USER_ENTERED',
-          requestBody: {
-            values: [[
-              existingSn,
-              chatIdValue,
-              chatType,
-              data.sender || 'Unknown',
-              displayNameValue,
-              channelNameValue,
-              `${chatType}`,
-            ]],
-          },
+          requestBody: { values: [buildRow(existingSn)] },
         });
 
-        logger.debug('Updated existing Telegram Group row by Chat Id', { chatId: chatIdValue, row: sheetRow });
+        logger.debug('Updated existing Telegram row by Chat Id', { chatId: chatIdValue, row: sheetRow });
         return Number.parseInt(existingSn, 10) || null;
       }
     } catch (err) {
-      logger.warn('Failed to check/update Telegram Group duplicate by Chat Id; falling back to append', { error: err.message, chatId: chatIdValue });
+      logger.warn('Failed to check/update Telegram duplicate by Chat Id; falling back to append', { error: err.message, chatId: chatIdValue });
     }
 
     const sn = await this.getNextTelegramGroupSerialNumber();
 
-    const row = [
-      sn,
-      chatIdValue,
-      chatType,
-      data.sender || 'Unknown',
-      displayNameValue,
-      channelNameValue,
-      `${chatType}`,
-    ];
-
     try {
-      await this.appendRow(id, 'Telegram Group!A:G', row);
-      logger.debug('Logged /start to Telegram Group sheet', { sn, chatId: data.chatId, chatType });
+      await this.appendRow(id, 'Telegram!A:G', buildRow(sn));
+      logger.debug('Logged /start to Telegram sheet', { sn, chatId: data.chatId, chatType });
       return sn;
     } catch (err) {
-      logger.error('Failed to log Telegram Group /start', { error: err.message });
+      logger.error('Failed to log Telegram /start', { error: err.message });
       return null;
     }
   }
 
   /**
    * Append a new session row to the "Sessions" sheet with Status = "Active".
-    * Columns: S/N | Sub-bot | Session Id | Sender | Display Name | Chat Id | Chat Type | Start Date | Start Time | End Date | End Time | Status
+   * Columns: S/N | Sub-bot | Session Id | Sender | Display Name | Chat Id | Chat Type | Channel Id | Channel Name | Start Date | Start Time | End Date | End Time | Status
    *
-    * @param {{ subBot: string, chatId: number|string, chatTitle: string|null, user: object, chatType: string, startTime: Date }} data
-    * @returns {Promise<{sn: number, sessionId: string}|null>} Session row identifiers
+   * Channel Id and Channel Name are only populated for group/channel chats.
+   *
+   * @param {{ subBot: string, chatId: number|string, chatTitle: string|null, user: object, chatType: string, startTime: Date }} data
+   * @returns {Promise<{sn: number, sessionId: string}|null>} Session row identifiers
    */
   async logSessionStart(data) {
     const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
@@ -514,7 +567,7 @@ class GoogleSheetsService {
         year: 'numeric',
       }).formatToParts(date);
       const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-      return `${map.day}/${map.month}/${map.year}`;
+      return `'${map.day}/${map.month}/${map.year}`;
     };
 
     const formatTime = (date) => {
@@ -527,11 +580,10 @@ class GoogleSheetsService {
         hour12: false,
       }).formatToParts(date);
       const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-      return `${map.hour}:${map.minute}:${map.second} hrs`;
+      return `'${map.hour}:${map.minute}:${map.second} hrs`;
     };
 
-    const sender = data.chatTitle
-      || (data.user?.username ? `@${data.user.username}` : [data.user?.first_name, data.user?.last_name].filter(Boolean).join(' '))
+    const sender = (data.user?.username ? `@${data.user.username}` : [data.user?.first_name, data.user?.last_name].filter(Boolean).join(' '))
       || 'Unknown';
     const displayName = [data.user?.first_name, data.user?.last_name].filter(Boolean).join(' ') || '';
 
@@ -540,25 +592,33 @@ class GoogleSheetsService {
     const chatType = data.chatType
       ? data.chatType.charAt(0).toUpperCase() + data.chatType.slice(1)
       : 'Private';
+    const isPrivate = (data.chatType || '').toLowerCase() === 'private';
+
+    // Channel Id = the group/channel's Telegram ID (same as chatId for group chats).
+    // Channel Name = the group/channel title. Both blank for private chats.
+    const channelIdValue = isPrivate ? '' : (data.chatId != null ? String(data.chatId) : '');
+    const channelNameValue = isPrivate ? '' : (data.chatTitle || '');
 
     const startDt = data.startTime || new Date();
     const row = [
-      sn,
-      data.subBot || 'Animal Identification',
-      sessionId,
-      sender,
-      displayName,
-      data.chatId != null ? String(data.chatId) : '',
-      chatType,
-      formatDate(startDt),  // Start Date
-      formatTime(startDt),  // Start Time
-      '',                   // End Date — filled in when session ends
-      '',                   // End Time — filled in when session ends
-      'Active',
+      sn,                                             // A: S/N
+      data.subBot || 'Animal Identification',         // B: Sub-bot
+      sessionId,                                      // C: Session Id
+      sender,                                         // D: Sender
+      displayName,                                    // E: Display Name
+      data.chatId != null ? String(data.chatId) : '', // F: Chat Id
+      channelIdValue,                                 // G: Channel Id (group/channel only)
+      channelNameValue,                               // H: Channel Name (group/channel only)
+      chatType,                                       // I: Chat Type
+      formatDate(startDt),                            // J: Start Date
+      formatTime(startDt),                            // K: Start Time
+      '',                                             // L: End Date — filled in when session ends
+      '',                                             // M: End Time — filled in when session ends
+      'Active',                                       // N: Status
     ];
 
     try {
-      await this.appendRow(id, 'Sessions!A:L', row);
+      await this.appendRow(id, 'Sessions!A:N', row);
       logger.debug('Logged session start to Google Sheets', { sn, sessionId, chatId: data.chatId, sender });
       return { sn, sessionId };
     } catch (err) {
@@ -587,7 +647,7 @@ class GoogleSheetsService {
         year: 'numeric',
       }).formatToParts(date);
       const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-      return `${map.day}/${map.month}/${map.year}`;
+      return `'${map.day}/${map.month}/${map.year}`;
     };
 
     const formatTime = (date) => {
@@ -600,7 +660,7 @@ class GoogleSheetsService {
         hour12: false,
       }).formatToParts(date);
       const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-      return `${map.hour}:${map.minute}:${map.second} hrs`;
+      return `'${map.hour}:${map.minute}:${map.second} hrs`;
     };
 
     try {
@@ -616,7 +676,7 @@ class GoogleSheetsService {
       const sheets = this._getSheets();
       await sheets.spreadsheets.values.update({
         spreadsheetId: id,
-        range: `Sessions!J${sheetRow}:L${sheetRow}`,
+        range: `Sessions!L${sheetRow}:N${sheetRow}`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [[formatDate(endTime), formatTime(endTime), status || 'Ended']] },
       });
@@ -628,10 +688,14 @@ class GoogleSheetsService {
 
   /**
    * Get the most recent session row for a context.
-    * Match keys: Sub-bot + Sender + Chat Type (+ Chat Id when provided).
+   * Match keys: Sub-bot + Sender + Chat Type (+ Chat Id when provided).
    *
-    * @param {{ subBot: string, sender: string, chatType: string, chatId?: number|string }} data
-   * @returns {Promise<{ sn: number|null, status: string, row: number }|null>}
+   * Sessions columns: S/N(A,0) | Sub-bot(B,1) | Session Id(C,2) | Sender(D,3) | Display Name(E,4) |
+   *   Chat Id(F,5) | Channel Id(G,6) | Channel Name(H,7) | Chat Type(I,8) |
+   *   Start Date(J,9) | Start Time(K,10) | End Date(L,11) | End Time(M,12) | Status(N,13)
+   *
+   * @param {{ subBot: string, sender: string, chatType: string, chatId?: number|string }} data
+   * @returns {Promise<{ sn: number|null, sessionId: string, status: string, row: number }|null>}
    */
   async getLatestSessionStatus(data) {
     const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
@@ -646,7 +710,7 @@ class GoogleSheetsService {
     );
 
     try {
-      const rows = await this.getRows(id, 'Sessions!A:J');
+      const rows = await this.getRows(id, 'Sessions!A:N');
       if (!rows || rows.length <= 1) return null;
 
       for (let i = rows.length - 1; i >= 1; i -= 1) {
@@ -654,7 +718,7 @@ class GoogleSheetsService {
         const rowSubBot = normalize(row[1]);
         const rowChatId = normalize(row[5]);
         const rowSender = normalize(row[3]);
-        const rowChatType = normalize(row[6]);
+        const rowChatType = normalize(row[8]);  // I: Chat Type
 
         const chatIdMatches = !targetChatId || rowChatId === targetChatId;
 
@@ -662,7 +726,7 @@ class GoogleSheetsService {
           return {
             sn: Number.parseInt(row[0], 10) || null,
             sessionId: row[2] || '',
-            status: row[9] || '',
+            status: row[13] || '',  // N: Status
             row: i + 1,
           };
         }

@@ -141,7 +141,10 @@ function buildInfoPanelSvg(data) {
   const country = truncate(renderSafeText(data.country || '', ''), 30);
 
   const badges = [];
-  if (sex && sex !== 'Unknown') badges.push(sex);
+  const sexConf = typeof data.sexConfidence === 'number' ? data.sexConfidence : 1.0;
+  const sexMethodVal = String(data.sexMethod || '').toLowerCase();
+  const showSexSvg = sexConf >= 0.55 || sexMethodVal === 'from_image_plumage' || sexMethodVal === 'from_species_knowledge';
+  if (sex && sex !== 'Unknown' && showSexSvg) badges.push(sex);
   if (lifeStage && lifeStage !== 'Unknown' && lifeStage !== 'Adult') badges.push(lifeStage);
   if (morph && morph !== 'None' && morph !== 'N/A') badges.push(morph);
 
@@ -336,10 +339,14 @@ async function buildResultPanelCanvas(data, W, H) {
     headerBadges.push({ label: cleanBadgeLabel(iucn.label), color: '#22c55e' });
   }
   if (!skip(sexVal) && sexVal !== 'Unknown') {
-    let sexLabel = cleanBadgeLabel(sexVal);
-    if (sexVal.toLowerCase() === 'male') sexLabel += ' (M)';
-    else if (sexVal.toLowerCase() === 'female') sexLabel += ' (F)';
-    headerBadges.push({ label: sexLabel, color: '#a78bfa' });
+    const sexConf = typeof data.sexConfidence === 'number' ? data.sexConfidence : 1.0;
+    const sexMethodVal = String(data.sexMethod || '').toLowerCase();
+    const showSex = sexConf >= 0.55 || sexMethodVal === 'from_image_plumage' || sexMethodVal === 'from_species_knowledge';
+    let sexLabel, sexTextColor;
+    if (sexVal.toLowerCase() === 'male') { sexLabel = '♂ Male'; sexTextColor = '#3b82f6'; }
+    else if (sexVal.toLowerCase() === 'female') { sexLabel = '♀ Female'; sexTextColor = '#ec4899'; }
+    else { sexLabel = null; sexTextColor = null; }
+    if (sexLabel && showSex) headerBadges.push({ label: sexLabel, color: '#2dd4bf', textColor: sexTextColor });
   }
   if (!skip(lifeStageVal)) {
     headerBadges.push({ label: cleanBadgeLabel(lifeStageVal), color: '#fb923c' });
@@ -349,6 +356,12 @@ async function buildResultPanelCanvas(data, W, H) {
   }
   if (!skip(morphVal)) {
     headerBadges.push({ label: cleanBadgeLabel(morphVal), color: '#f472b6' });
+  }
+  if (!skip(data.migratoryStatus)) {
+    const migSkip = ['resident']; // Resident is the default — not worth a badge unless locale is interesting
+    if (!migSkip.includes(String(data.migratoryStatus).toLowerCase().trim())) {
+      headerBadges.push({ label: cleanBadgeLabel(data.migratoryStatus), color: '#818cf8' });
+    }
   }
 
   const leftX = 16;
@@ -371,8 +384,8 @@ async function buildResultPanelCanvas(data, W, H) {
     ctx.lineWidth = 1.2;
     ctx.strokeStyle = badge.color;
     ctx.stroke();
-    ctx.fillStyle = badge.color;
-    ctx.fillText(truncate(renderSafeText(badge.label, 'N/A'), 48), bx + (badgeW / 2), by + 13);
+    ctx.fillStyle = badge.textColor || badge.color;
+    ctx.fillText(truncate(badge.label || '', 48), bx + (badgeW / 2), by + 13);
   });
 
   const commonLines = wordWrap(renderSafeText(data.commonName || 'Unknown', data.scientificName || 'Unknown'), 26).slice(0, 2);
@@ -419,16 +432,20 @@ async function buildResultPanelCanvas(data, W, H) {
     }
   }
 
-  const loc = renderSafeText(data.ebirdSightingsLocation || 'Singapore', data.country || 'Singapore');
-  const sightingsText = typeof data.ebirdSightingsCount === 'number' && data.ebirdSightingsCount >= 0
-    ? `No. of Sightings (${loc}): ${data.ebirdSightingsCount}`
-    : `No. of Sightings (${loc}): N/A`;
+  const loc = renderSafeText(data.ebirdSightingsLocation || data.country || '', '');
+  const sightingsCount = typeof data.ebirdSightingsCount === 'number' && data.ebirdSightingsCount >= 0
+    ? String(data.ebirdSightingsCount)
+    : 'N/A';
+  const sightingsLine1 = `No. of Sightings${loc ? ` (${loc})` : ''}:`;
+  const sightingsLine2 = sightingsCount;
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#facc15';
-  ctx.font = "bold 32px 'Wildlife Sans', Arial, sans-serif";
-  ctx.fillText(sightingsText, W / 2, H - 42);
+  ctx.font = "bold 22px 'Wildlife Sans', Arial, sans-serif";
+  ctx.fillText(sightingsLine1, W / 2, H - 52);
+  ctx.font = "bold 28px 'Wildlife Sans', Arial, sans-serif";
+  ctx.fillText(sightingsLine2, W / 2, H - 22);
 
   return canvas.toBuffer('image/png');
 }
@@ -461,10 +478,11 @@ function buildResultPanel(data, W, H) {
   }
   // 3. Sex
   if (!_skip(sexVal) && sexVal !== 'Unknown') {
-    let sexLabel = cleanBadgeLabel(sexVal);
-    if (sexVal.toLowerCase() === 'male') sexLabel += ' (M)';
-    else if (sexVal.toLowerCase() === 'female') sexLabel += ' (F)';
-    headerBadges.push({ label: sexLabel, color: '#a78bfa' });
+    let sexLabel, sexTextColor;
+    if (sexVal.toLowerCase() === 'male') { sexLabel = '♂ Male'; sexTextColor = '#3b82f6'; }
+    else if (sexVal.toLowerCase() === 'female') { sexLabel = '♀ Female'; sexTextColor = '#ec4899'; }
+    else { sexLabel = null; sexTextColor = null; } // N/A or anything else — skip
+    if (sexLabel) headerBadges.push({ label: sexLabel, color: '#2dd4bf', textColor: sexTextColor });
   }
   // 4. Life Stage
   if (!_skip(lifeStageVal)) {
@@ -496,9 +514,10 @@ function buildResultPanel(data, W, H) {
       const bx = col === 0 ? leftX : rightX;
       const by = rowTop + row * rowGap;
       const text = truncate(badge.label, 48);
+      const textFill = badge.textColor || badge.color;
       headerBadgesSvg += `
         <rect x="${bx}" y="${by}" width="${badgeW}" height="26" rx="13" fill="${badge.color}1a" stroke="${badge.color}" stroke-width="1.2"/>
-        <text x="${bx + badgeW / 2}" y="${by + 17}" font-size="12" fill="${badge.color}" text-anchor="middle" font-family="${FONT_FAMILY}" font-weight="600">${escSvg(renderSafeText(text, 'N/A'))}</text>`;
+        <text x="${bx + badgeW / 2}" y="${by + 17}" font-size="12" fill="${textFill}" text-anchor="middle" font-family="${FONT_FAMILY}" font-weight="600">${escSvg(renderSafeText(text, 'N/A'))}</text>`;
     });
   }
 
@@ -550,11 +569,11 @@ function buildResultPanel(data, W, H) {
 
   // Footer: eBird sightings count for this species at the user location
   let ebirdSightingsFooter = '';
-  const loc = renderSafeText(data.ebirdSightingsLocation || 'Singapore', data.country || 'Singapore');
+  const loc = renderSafeText(data.ebirdSightingsLocation || data.country || '', '');
   if (typeof data.ebirdSightingsCount === 'number' && data.ebirdSightingsCount >= 0) {
-    ebirdSightingsFooter = `<text x="${W / 2}" y="${H - 42}" font-size="32" fill="#facc15" text-anchor="middle" font-family="${FONT_FAMILY}" font-weight="bold">No. of Sightings (${escSvg(loc)}): ${data.ebirdSightingsCount}</text>`;
+    ebirdSightingsFooter = `<text x="${W / 2}" y="${H - 42}" font-size="32" fill="#facc15" text-anchor="middle" font-family="${FONT_FAMILY}" font-weight="bold">No. of Sightings${loc ? ` (${escSvg(loc)})` : ''}: ${data.ebirdSightingsCount}</text>`;
   } else {
-    ebirdSightingsFooter = `<text x="${W / 2}" y="${H - 42}" font-size="32" fill="#facc15" text-anchor="middle" font-family="${FONT_FAMILY}" font-weight="bold">No. of Sightings (${escSvg(loc)}): N/A</text>`;
+    ebirdSightingsFooter = `<text x="${W / 2}" y="${H - 42}" font-size="32" fill="#facc15" text-anchor="middle" font-family="${FONT_FAMILY}" font-weight="bold">No. of Sightings${loc ? ` (${escSvg(loc)})` : ''}: N/A</text>`;
   }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">

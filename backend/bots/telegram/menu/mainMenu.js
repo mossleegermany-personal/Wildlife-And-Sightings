@@ -14,8 +14,12 @@
 // chatId -> messageId for the pending "New Identification" helper prompt
 const identifyPromptMessages = new Map();
 const sheetsService = require('../../../database/googleSheets/services/googleSheetsService');
+const logger = require('../../../src/utils/logger');
 const { startAddSightingSession }  = require('../commands/addSighting');
-const { SIGHTINGS_CATEGORY_MENU }  = require('../commands/birdMenu');
+const { SIGHTINGS_CATEGORY_MENU, ensureActiveBirdSession }  = require('../commands/birdMenu');
+
+// chatId -> { sn, sessionId } — in-memory dedup guard for Animal Identification sessions
+const identifySessionMap = new Map();
 
 // userId -> { chatId, chatTitle, chatType, sender, startTime, sessionSn, sessionId } for active sessions
 const sessionStartTimes = new Map();
@@ -39,6 +43,10 @@ function getSessionStart(userId) {
 function clearSessionStart(userId) {
   sessionStartTimes.delete(userId);
 }
+
+function clearIdentifySession(chatId) {
+  identifySessionMap.delete(chatId);
+}
 function setIdentifyPromptMessage(chatId, messageId) {
   identifyPromptMessages.set(chatId, messageId);
 }
@@ -61,6 +69,9 @@ const MAIN_MENU = {
         { text: '🦎 Identify Animal', callback_data: 'menu_identify'  },
         { text: '🐦 Bird Sightings',  callback_data: 'menu_sightings' },
       ],
+      [
+        { text: '❓ Help', callback_data: 'menu_help' },
+      ],
     ],
   },
 };
@@ -68,10 +79,48 @@ const MAIN_MENU = {
 // ── Callback handlers ─────────────────────────────────────────────────────────
 
 const CALLBACKS = {
-  menu_identify(bot, query) {
+  async menu_identify(bot, query) {
     bot.answerCallbackQuery(query.id);
+
+    const chat = query.message.chat;
+    const user = query.from;
+    const chatId = chat.id;
+    const chatType = chat.type || 'private';
+    const chatTitle = chat.title || null;
+    const sender = chatTitle
+      || (user?.username ? `@${user.username}` : [user?.first_name, user?.last_name].filter(Boolean).join(' '))
+      || 'Unknown';
+
+    // Start session on first entry — in-memory guard prevents duplicate rows
+    if (!identifySessionMap.has(chatId)) {
+      try {
+        const latest = await sheetsService.getLatestSessionStatus({
+          subBot: 'Animal Identification',
+          chatId,
+          sender,
+          chatType,
+        });
+        if (latest && String(latest.status || '').toLowerCase() === 'active') {
+          identifySessionMap.set(chatId, { sn: latest.sn, sessionId: latest.sessionId || '' });
+        } else {
+          const started = await sheetsService.logSessionStart({
+            subBot: 'Animal Identification',
+            chatId,
+            chatTitle,
+            user,
+            chatType,
+            startTime: new Date(),
+          });
+          identifySessionMap.set(chatId, { sn: started?.sn || null, sessionId: started?.sessionId || '' });
+        }
+      } catch (err) {
+        logger.warn('[mainMenu] identify session init failed', { error: err.message });
+        identifySessionMap.set(chatId, { sn: null, sessionId: '' });
+      }
+    }
+
     bot.sendMessage(
-      query.message.chat.id,
+      chatId,
       `<b>🦎 Identify an Animal</b>\n\nWhat would you like to do?`,
       {
         parse_mode: 'HTML',
@@ -94,84 +143,65 @@ const CALLBACKS = {
 
     const chat = query.message.chat;
     const user = query.from;
+    const chatId = chat.id;
     const chatType = chat.type || 'private';
     const chatTitle = chat.title || null;
     const sender = chatTitle
       || (user?.username ? `@${user.username}` : [user?.first_name, user?.last_name].filter(Boolean).join(' '))
       || 'Unknown';
 
-    const startTime = new Date();
-    let sessionSn = null;
-
-    try {
-      const latest = await sheetsService.getLatestSessionStatus({
-        subBot: 'Animal Identification',
-        chatId: chat.id,
-        sender,
-        chatType,
-      });
-
-      if (latest && String(latest.status || '').toLowerCase() === 'active') {
-        sessionSn = latest.sn;
-        const sessionId = latest.sessionId || '';
-        const sent = await bot.sendMessage(
-          chat.id,
-          `<b>📷 New Identification</b>\n\nSimply <b>send me a photo</b> and I'll identify the animal in it.`,
-          { parse_mode: 'HTML' }
-        );
-
-        setIdentifyPromptMessage(sent.chat.id, sent.message_id);
-        setSessionStart(query.from?.id, chat.id, chatTitle, chatType, sender, sessionSn, sessionId, startTime);
-        return;
-      } else {
-        const started = await sheetsService.logSessionStart({
-          subBot: 'Animal Identification',
-          chatId: chat.id,
-          chatTitle,
-          user,
-          chatType,
-          startTime,
-        });
-        sessionSn = started?.sn || null;
-        const sessionId = started?.sessionId || '';
-
-        const sent = await bot.sendMessage(
-          chat.id,
-          `<b>📷 New Identification</b>\n\nSimply <b>send me a photo</b> and I'll identify the animal in it.`,
-          { parse_mode: 'HTML' }
-        );
-
-        setIdentifyPromptMessage(sent.chat.id, sent.message_id);
-        setSessionStart(query.from?.id, chat.id, chatTitle, chatType, sender, sessionSn, sessionId, startTime);
-        return;
-      }
-    } catch {
-      // Non-blocking: identification flow should continue even if session logging fails.
-      sessionSn = null;
-    }
+    // Session was started in menu_identify — just read from memory
+    const session = identifySessionMap.get(chatId) || { sn: null, sessionId: '' };
 
     const sent = await bot.sendMessage(
-      chat.id,
+      chatId,
       `<b>📷 New Identification</b>\n\nSimply <b>send me a photo</b> and I'll identify the animal in it.`,
       { parse_mode: 'HTML' }
     );
 
     setIdentifyPromptMessage(sent.chat.id, sent.message_id);
-    setSessionStart(query.from?.id, chat.id, chatTitle, chatType, sender, sessionSn, '', startTime);
+    setSessionStart(user?.id, chatId, chatTitle, chatType, sender, session.sn, session.sessionId, new Date());
   },
 
-  menu_sightings(bot, query) {
+  async menu_sightings(bot, query) {
     bot.answerCallbackQuery(query.id);
+    const chat = query.message.chat;
+    const user = query.from;
+    ensureActiveBirdSession(chat, user).catch(() => {});
     bot.sendMessage(
-      query.message.chat.id,
+      chat.id,
       `<b>🐦 Bird Sightings</b>\n\nChoose a category to explore:`,
-      SIGHTINGS_CATEGORY_MENU
+      { ...SIGHTINGS_CATEGORY_MENU, parse_mode: 'HTML' }
     );
   },
 
   menu_addsighting(bot, query) {
     bot.answerCallbackQuery(query.id);
     startAddSightingSession(bot, query.message.chat.id, query.from, query.message.chat);
+  },
+
+  menu_help(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    bot.sendMessage(
+      query.message.chat.id,
+      `<b>🌿 Wildlife &amp; Sightings Bot — Commands</b>\n\n` +
+      `<b>Identification</b>\n` +
+      `📸 Send any photo — I'll identify the animal\n` +
+      `/identify_url &lt;url&gt; — identify from an image URL\n\n` +
+      `<b>Bird Sightings</b>\n` +
+      `/nearby &lt;lat&gt; &lt;lng&gt; — recent birds near a location\n` +
+      `/region &lt;code&gt; — recent birds in a region (e.g. US-CA)\n` +
+      `/notable &lt;code&gt; — notable/rare sightings in a region\n\n` +
+      `<b>Hotspots</b>\n` +
+      `/hotspots &lt;lat&gt; &lt;lng&gt; — birding hotspots near you\n\n` +
+      `<b>Species</b>\n` +
+      `/search &lt;name&gt; — search bird species by name\n\n` +
+      `<b>General</b>\n` +
+      `/start — welcome message\n` +
+      `/help — show this message\n` +
+      `/about — about this bot`,
+      { parse_mode: 'HTML' }
+    );
   },
 };
 
@@ -193,4 +223,5 @@ module.exports = {
   setSessionStart,
   getSessionStart,
   clearSessionStart,
+  clearIdentifySession,
 };

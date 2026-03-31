@@ -86,6 +86,22 @@ async function getNearbySpeciesObservations(speciesCode, coords, back = 30) {
       return { found: false, count: 0, recentDates: [] };
     }
 
+    // If a specific subnational region code is provided, use that
+    if (coords.subnationalCode) {
+      const response = await axios.get(`${EBIRD_BASE}/data/obs/${coords.subnationalCode}/recent/${speciesCode}`, {
+        params: { back: 30, includeProvisional: true, detail: 'full' },
+        headers: { 'X-eBirdApiToken': token },
+        timeout: 15000,
+      });
+      const records = Array.isArray(response.data) ? response.data : [];
+      return {
+        found: true,
+        count: records.length,
+        recentDates: records.map((r) => r.obsDt).filter(Boolean).slice(0, 20),
+        records: records.slice(0, 50),
+      };
+    }
+
     // If coords.isCountryOnly and coords.countryCode, use region endpoint
     if (coords.isCountryOnly && coords.countryCode) {
       // eBird expects ISO 2-letter country code, uppercase
@@ -94,6 +110,7 @@ async function getNearbySpeciesObservations(speciesCode, coords, back = 30) {
         params: {
           back: 30,
           includeProvisional: true,
+          detail: 'full',
         },
         headers: { 'X-eBirdApiToken': token },
         timeout: 15000,
@@ -103,6 +120,7 @@ async function getNearbySpeciesObservations(speciesCode, coords, back = 30) {
         found: true,
         count: records.length,
         recentDates: records.map((r) => r.obsDt).filter(Boolean).slice(0, 20),
+        records: records.slice(0, 50),
       };
     }
 
@@ -114,6 +132,7 @@ async function getNearbySpeciesObservations(speciesCode, coords, back = 30) {
         dist: 50,
         back: 30,
         includeProvisional: true,
+        detail: 'full',
       },
       headers: { 'X-eBirdApiToken': token },
       timeout: 15000,
@@ -123,6 +142,7 @@ async function getNearbySpeciesObservations(speciesCode, coords, back = 30) {
       found: true,
       count: records.length,
       recentDates: records.map((r) => r.obsDt).filter(Boolean).slice(0, 20),
+      records: records.slice(0, 50),
     };
   } catch (err) {
     logger.warn('eBird species observations lookup failed', {
@@ -133,4 +153,30 @@ async function getNearbySpeciesObservations(speciesCode, coords, back = 30) {
   }
 }
 
-module.exports = { getSpeciesCode, buildSpeciesUrl, getNearbySpeciesObservations, getEBirdSubspecificGroups, toUKSpelling };
+/**
+ * Resolve an eBird subnational1 region code (e.g. "JP-20") from a country code + state name.
+ * Uses the eBird /ref/region/list endpoint.
+ * Returns null if not found.
+ */
+async function getEBirdSubnationalCode(countryCode, stateName) {
+  if (!countryCode || !stateName) return null;
+  try {
+    const token = process.env.EBIRD_API_KEY;
+    if (!token) return null;
+    const resp = await axios.get(`${EBIRD_BASE}/ref/region/list/subnational1/${countryCode.toUpperCase()}`, {
+      headers: { 'X-eBirdApiToken': token },
+      timeout: 10000,
+    });
+    const regions = Array.isArray(resp.data) ? resp.data : [];
+    const needle = stateName.toLowerCase().trim();
+    // Exact match first, then prefix/contains
+    const exact = regions.find(r => r.name.toLowerCase() === needle);
+    if (exact) return exact.code;
+    const partial = regions.find(r => r.name.toLowerCase().includes(needle) || needle.includes(r.name.toLowerCase()));
+    return partial ? partial.code : null;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { getSpeciesCode, buildSpeciesUrl, getNearbySpeciesObservations, getEBirdSubspecificGroups, toUKSpelling, getEBirdSubnationalCode };

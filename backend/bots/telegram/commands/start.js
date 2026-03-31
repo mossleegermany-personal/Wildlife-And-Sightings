@@ -75,9 +75,10 @@ module.exports = function registerStart(bot) {
     const logChatId = senderChat?.id != null ? senderChat.id : chatId;
     const logChatType = senderChat?.type || msg.chat?.type || 'private';
 
-    // Always log /start into "Telegram Group" sheet.
+    // Always log /start into "Telegram" sheet.
     sheetsService.logTelegramGroupStart({
       chatId: logChatId,
+      channelId: msg.chat?.id != null ? msg.chat.id : '',
       chatType: logChatType,
       sender: getSenderLabel(msg.from, senderChat),
       displayName: getDisplayName(msg.from),

@@ -15,12 +15,24 @@ const NOMINATIM_API = 'https://nominatim.openstreetmap.org';
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
+/** Reverse-geocode lat/lng to a country code using Nominatim. */
+async function reverseGeocodeCountry(lat, lng) {
+  try {
+    const url = `${NOMINATIM_API}/reverse?lat=${lat}&lon=${lng}&format=json&zoom=3&accept-language=en`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'WildlifeSightingsBackend/1.0' },
+    });
+    const data = await res.json();
+    return (data?.address?.country_code || '').toUpperCase() || null;
+  } catch { return null; }
+}
+
 /** Geocode a place name to lat/lng using OpenStreetMap Nominatim. */
 async function geocodeLocation(locationName) {
   try {
-    const url = `${NOMINATIM_API}/search?q=${encodeURIComponent(locationName)}&format=json&limit=1&addressdetails=1`;
+    const url = `${NOMINATIM_API}/search?q=${encodeURIComponent(locationName)}&format=json&limit=1&addressdetails=1&accept-language=en`;
     const response = await fetch(url, {
-      headers: { 'User-Agent': 'WildlifeSightingsBackend/1.0' },
+      headers: { 'User-Agent': 'WildlifeSightingsBackend/1.0', 'Accept-Language': 'en' },
     });
     const data = await response.json();
     if (data && data.length > 0) {
@@ -32,6 +44,15 @@ async function geocodeLocation(locationName) {
         country_code: (addr.country_code || '').toUpperCase(),
         country: addr.country || '',
         city: addr.city || addr.town || addr.village || addr.state || '',
+        state: addr.state || addr.county || addr.municipality || addr.region || '',
+        district: addr.county || addr.district || addr.municipality || '',
+        // ISO 3166-2 subdivision code e.g. "JP-20" for Nagano — maps directly to eBird subnational codes
+        isoSubdivision: addr['ISO3166-2-lvl4'] || addr['ISO3166-2-lvl3'] || null,
+        // Nominatim OSM class/type — used to detect administrative boundaries vs specific places
+        osmClass: data[0].class || null,
+        osmType: data[0].type || null,
+        // Bounding box [south, north, west, east] — used to calculate appropriate search radius
+        boundingbox: Array.isArray(data[0].boundingbox) ? data[0].boundingbox.map(Number) : null,
       };
     }
     return null;
@@ -411,6 +432,7 @@ module.exports = {
   getSubspecies,
   checkOccurrencesAtLocation,
   geocodeLocation,
+  reverseGeocodeCountry,
   getGBIFNames,
   getGeographicRange,
   getOccurrenceCountByCountry,

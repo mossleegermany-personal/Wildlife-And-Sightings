@@ -19,7 +19,7 @@ function saveRateLimitStore(store) {
 
 function resetIfNeeded(store) {
   const now = new Date();
-    const today = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore' }).format(now);
+  const today = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore' }).format(now);
   if (store.lastReset !== today) {
     store.users = {};
     store.groups = {};
@@ -106,10 +106,12 @@ const exifParser = require('exif-parser');
 const geminiService = require('../../animalIdentification/services/geminiService');
 const { createResultCanvas } = require('../../animalIdentification/services/imageService');
 const { getSpeciesPhoto } = require('../../animalIdentification/services/inaturalistService');
-const { getSpeciesCode, getNearbySpeciesObservations, getEBirdSubspecificGroups } = require('../../animalIdentification/services/ebirdService');
+const { getSpeciesCode, getNearbySpeciesObservations, getEBirdSubspecificGroups, getEBirdSubnationalCode } = require('../../animalIdentification/services/ebirdService');
 const { getGBIFNames, geocodeLocation, checkOccurrencesAtLocation, getGeographicRange, getGlobalOccurrenceCount, getSubspeciesOccurrencesByCountry } = require('../../animalIdentification/services/gbifService');
 const { getWikipediaInfo } = require('../../animalIdentification/services/wikipediaService');
-const { consumeIdentifyPromptMessage, setIdentifyPromptMessage, hasIdentifyPromptMessage, setSessionStart, getSessionStart, clearSessionStart } = require('../menu/mainMenu');
+const { consumeIdentifyPromptMessage, setIdentifyPromptMessage, hasIdentifyPromptMessage, setSessionStart, getSessionStart, clearSessionStart, clearIdentifySession } = require('../menu/mainMenu');
+const { ebird: ebirdSvc } = require('./birdMenu/services');
+const { getTimezoneForRegion, getTzAbbr, parseBreedingCode, parseAgeSex } = require('./birdMenu/helpers');
 const sheetsService = require('../../../database/googleSheets/services/googleSheetsService');
 //const googleDriveService = require('../../../database/googleDrive/services/googleDriveService');
 const logger = require('../../../src/utils/logger');
@@ -120,6 +122,9 @@ function escHtml(str) {
 
 // chatId → { buffer, mimeType, location, locationMsgId, imageCapturedAt, visualQuestion }
 const pending = new Map();
+
+// userId → { records, location, speciesName } — cached eBird sightings for the last result
+const ebirdSightingsCache = new Map();
 
 // userId → last resolved country/location preference (used when user skips location)
 const lastLocationByUser = new Map();
@@ -314,6 +319,8 @@ async function requestLocationAndQueue(bot, chatId, payload, user, chat) {
     }
   );
   const userId = user?.id;
+  // Clear any remembered location so each new identification always prompts fresh.
+  lastLocationByUser.delete(userId);
   const sessionStart = getSessionStart(userId);
   pending.set(userId, {
     chatId,
@@ -332,8 +339,7 @@ async function requestLocationAndQueue(bot, chatId, payload, user, chat) {
 }
 
 function buildSessionSender(chat, user) {
-  return chat?.title
-    || (user?.username ? `@${user.username}` : [user?.first_name, user?.last_name].filter(Boolean).join(' '))
+  return (user?.username ? `@${user.username}` : [user?.first_name, user?.last_name].filter(Boolean).join(' '))
     || 'Unknown';
 }
 
@@ -412,6 +418,11 @@ module.exports = function registerIdentify(bot) {
       }
     }
 
+    // Forwarded photos are pass-through only — no session, no identification flow.
+    // Exception: if the user has an active identification session (e.g. clicked "Identify another"),
+    // allow the forwarded image through so it can be identified.
+    if ((msg.forward_date || msg.forward_origin || msg.forward_from || msg.forward_from_chat) && !hasIdentifyPromptMessage(chatId)) return;
+
     try {
       // Check if there's an active identification session (prompt message showing)
       const hasActiveSession = hasIdentifyPromptMessage(chatId);
@@ -440,55 +451,29 @@ module.exports = function registerIdentify(bot) {
         }
         return;
       } else if (!hasActiveSession) {
-        // No active session: in private chat, continue and ask for location.
-        // In groups, keep existing guard behavior to avoid accidental spam.
-        const chatType = msg.chat?.type;
-        const isGroupChat = chatType === 'group' || chatType === 'supergroup';
-        if (!isGroupChat) {
-          let sessionState = null;
-          try {
-            sessionState = await ensureActiveSessionRecord(msg.chat, msg.from);
-          } catch {
-            // Non-blocking: still continue with identification flow.
-          }
-
-          await requestLocationAndQueue(
-            bot,
-            chatId,
-            {
-              buffer: enhanced,
-              mimeType: 'image/jpeg',
-              inputFileId,
-              imageCapturedAt,
-              isNight: nightLow.isNight,
-              isLowLight: nightLow.isLowLight,
-              visualQuestion: (msg.caption || '').trim(),
-              sessionId: sessionState?.sessionId || '',
-            },
-            msg.from,
-            msg.chat
-          );
-          return;
-        }
-
+        // No active session — user did not initiate via the menu. Delete the image silently.
+        await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
         return;
       } else {
-        const activeBySheet = await hasActiveSessionBySheet(msg.chat, msg.from);
-        if (!activeBySheet) {
-          await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
-          const promptMessageId = consumeIdentifyPromptMessage(chatId);
-          if (promptMessageId) {
-            await bot.deleteMessage(chatId, promptMessageId).catch(() => {});
-          }
-          clearSessionStart(userId);
-          return;
-        }
-
-        // Active session: delete prompt, keep image, ask for location
+        // Prompt is active — user went through the proper flow. Always proceed.
+        // Delete the prompt message, keep the photo, and ask for location.
         const promptMessageId = consumeIdentifyPromptMessage(chatId);
         if (promptMessageId) {
           await bot.deleteMessage(chatId, promptMessageId).catch(() => {});
         }
+
+        // Use the session already stored in memory when the button was clicked.
+        // Calling ensureActiveSessionRecord here can race with the Sheets write from
+        // menu_identify_new and create a duplicate session row.
+        const storedSession = getSessionStart(userId);
+        let sessionId = storedSession?.sessionId || '';
+        if (!sessionId) {
+          try {
+            const sessionState = await ensureActiveSessionRecord(msg.chat, msg.from);
+            sessionId = sessionState?.sessionId || '';
+          } catch { /* non-blocking */ }
+        }
+
         await requestLocationAndQueue(
           bot,
           chatId,
@@ -500,6 +485,7 @@ module.exports = function registerIdentify(bot) {
             isNight: nightLow.isNight,
             isLowLight: nightLow.isLowLight,
             visualQuestion: (msg.caption || '').trim(),
+            sessionId,
           },
           msg.from,
           msg.chat
@@ -531,6 +517,11 @@ module.exports = function registerIdentify(bot) {
       }
     }
 
+    // Forwarded documents are pass-through only — no session, no identification flow.
+    // Exception: if the user has an active identification session (e.g. clicked "Identify another"),
+    // allow the forwarded image through so it can be identified.
+    if ((msg.forward_date || msg.forward_origin || msg.forward_from || msg.forward_from_chat) && !hasIdentifyPromptMessage(chatId)) return;
+
     try {
       const doc = msg.document;
       const isImage = !!doc && ((doc.mime_type || '').startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(doc.file_name || ''));
@@ -555,55 +546,26 @@ module.exports = function registerIdentify(bot) {
         }
         return;
       } else if (!hasActiveSession) {
-        // No active session: in private chat, continue and ask for location.
-        // In groups, keep existing guard behavior to avoid accidental spam.
-        const chatType = msg.chat?.type;
-        const isGroupChat = chatType === 'group' || chatType === 'supergroup';
-        if (!isGroupChat) {
-          let sessionState = null;
-          try {
-            sessionState = await ensureActiveSessionRecord(msg.chat, msg.from);
-          } catch {
-            // Non-blocking: still continue with identification flow.
-          }
-
-          await requestLocationAndQueue(
-            bot,
-            chatId,
-            {
-              buffer,
-              mimeType,
-              inputFileId,
-              imageCapturedAt,
-              isNight: nightLow.isNight,
-              isLowLight: nightLow.isLowLight,
-              visualQuestion: (msg.caption || '').trim(),
-              sessionId: sessionState?.sessionId || '',
-            },
-            msg.from,
-            msg.chat
-          );
-          return;
-        }
-
+        // No active session — user did not initiate via the menu. Delete the image silently.
+        await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
         return;
       } else {
-        const activeBySheet = await hasActiveSessionBySheet(msg.chat, msg.from);
-        if (!activeBySheet) {
-          await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
-          const promptMessageId = consumeIdentifyPromptMessage(chatId);
-          if (promptMessageId) {
-            await bot.deleteMessage(chatId, promptMessageId).catch(() => {});
-          }
-          clearSessionStart(userId);
-          return;
-        }
-
-        // Active session: delete prompt, keep image, ask for location
+        // Prompt is active — user went through the proper flow. Always proceed.
         const promptMessageId = consumeIdentifyPromptMessage(chatId);
         if (promptMessageId) {
           await bot.deleteMessage(chatId, promptMessageId).catch(() => {});
         }
+
+        // Use the session already stored in memory when the button was clicked.
+        const storedSession = getSessionStart(userId);
+        let sessionId = storedSession?.sessionId || '';
+        if (!sessionId) {
+          try {
+            const sessionState = await ensureActiveSessionRecord(msg.chat, msg.from);
+            sessionId = sessionState?.sessionId || '';
+          } catch { /* non-blocking */ }
+        }
+
         await requestLocationAndQueue(
           bot,
           chatId,
@@ -615,6 +577,7 @@ module.exports = function registerIdentify(bot) {
             isNight: nightLow.isNight,
             isLowLight: nightLow.isLowLight,
             visualQuestion: (msg.caption || '').trim(),
+            sessionId,
           },
           msg.from,
           msg.chat
@@ -628,6 +591,29 @@ module.exports = function registerIdentify(bot) {
   // ── Step 2: handle location reply (text, shared GPS, or skip) ───────────────
   bot.on('message', async (msg) => {
     const userId = msg.from?.id;
+
+    // Handle eBird jump page input
+    const jumpChatId = msg.chat?.id;
+    const jumpState = jumpChatId && pending.get(jumpChatId);
+    if (jumpState?.awaitingEbirdJump && msg.text) {
+      const pageNum = parseInt(msg.text.trim(), 10);
+      pending.set(jumpChatId, { ...jumpState, awaitingEbirdJump: false });
+      await bot.deleteMessage(jumpChatId, msg.message_id).catch(() => {});
+      if (isNaN(pageNum) || pageNum < 1 || pageNum > jumpState.ebirdTotalPages) {
+        await bot.sendMessage(jumpChatId, `❌ Invalid page. Enter 1–${jumpState.ebirdTotalPages}.`);
+        return;
+      }
+      const cached = ebirdSightingsCache.get(userId);
+      if (!cached) return;
+      const { text, keyboard } = await buildSightingsPage(cached.records, pageNum - 1, cached.location, cached.speciesName, cached.regionCode);
+      await bot.editMessageText(text, {
+        chat_id: jumpChatId, message_id: jumpState.ebirdJumpMsgId,
+        parse_mode: 'HTML', disable_web_page_preview: true,
+        reply_markup: keyboard,
+      }).catch(() => {});
+      return;
+    }
+
     if (!userId || !pending.has(userId)) return;
     if (!msg.text && !msg.location) return;
     if (msg.text && msg.text.startsWith('/')) return;
@@ -744,6 +730,223 @@ module.exports = function registerIdentify(bot) {
       }
 
       clearSessionStart(query.from?.id);
+      clearIdentifySession(query.message.chat.id);
+    }
+  });
+
+  // ── eBird Sightings — paginated (triggered from photo caption button & page nav) ──
+  const SIGHTINGS_PER_PAGE = 6;
+
+  const BREEDING_CODES = {
+    // Observed
+    F:  'Flyover',
+    // Possible
+    H:  'In appropriate habitat',
+    S:  'Singing bird',
+    // Probable
+    P:  'Pair in suitable habitat',
+    M:  'Multiple (7+) singing birds',
+    S7: 'Singing bird present 7+ days',
+    T:  'Territorial defence',
+    C:  'Courtship, display or copulation',
+    N:  'Visiting probable nest site',
+    A:  'Agitated behaviour',
+    B:  'Wren/woodpecker nest building',
+    CN: 'Carrying nesting material',
+    PE: 'Physiological evidence',
+    // Confirmed
+    NB: 'Nest building',
+    DD: 'Distraction display',
+    UN: 'Used nest',
+    ON: 'Occupied nest',
+    CF: 'Carrying food',
+    FS: 'Carrying fecal sac',
+    FY: 'Feeding young',
+    FL: 'Recently fledged young',
+    NE: 'Nest with eggs',
+    NY: 'Nest with young',
+    // Fallback
+    X:  'Species observed',
+  };
+
+  // Cache for checklist data fetched during sightings pagination
+  const checklistCache = new Map();
+
+  async function enrichPageRecords(pageRecords) {
+    const subIds = [...new Set(pageRecords.filter(r => r.subId && !checklistCache.has(r.subId)).map(r => r.subId))];
+    if (subIds.length > 0) {
+      await Promise.allSettled(subIds.map(async (subId) => {
+        try {
+          const checklist = await ebirdSvc.getChecklist(subId);
+          const obsMap = new Map();
+          if (checklist && Array.isArray(checklist.obs)) {
+            for (const entry of checklist.obs) {
+              if (entry.speciesCode) {
+                obsMap.set(entry.speciesCode, {
+                  comments:     entry.comments || null,
+                  breedingCode: parseBreedingCode(entry.obsAux),
+                  ageSex:       parseAgeSex(entry.obsAux),
+                });
+              }
+            }
+          }
+          checklistCache.set(subId, { observerName: checklist?.userDisplayName || null, obsMap });
+        } catch {
+          checklistCache.set(subId, { observerName: null, obsMap: new Map() });
+        }
+      }));
+    }
+    for (const r of pageRecords) {
+      if (r.subId) {
+        const cached = checklistCache.get(r.subId);
+        if (cached) {
+          if (!r.userDisplayName && cached.observerName) r.userDisplayName = cached.observerName;
+          const od = cached.obsMap.get(r.speciesCode);
+          if (od) {
+            if (!r.comments     && od.comments)     r.comments     = od.comments;
+            if (!r.breedingCode && od.breedingCode) r.breedingCode = od.breedingCode;
+            if (!r.ageSex       && od.ageSex)       r.ageSex       = od.ageSex;
+          }
+        }
+      }
+    }
+  }
+
+  async function buildSightingsPage(records, page, location, speciesName, regionCode) {
+    // Sort chronologically (oldest first) by observation date
+    records.sort((a, b) => (a.obsDt || '').localeCompare(b.obsDt || ''));
+
+    const totalPages = Math.ceil(records.length / SIGHTINGS_PER_PAGE);
+    const start = page * SIGHTINGS_PER_PAGE;
+    const pageRecords = records.slice(start, start + SIGHTINGS_PER_PAGE);
+
+    await enrichPageRecords(pageRecords);
+
+    const tz     = regionCode ? getTimezoneForRegion(regionCode) : 'UTC';
+    const tzAbbr = regionCode ? ` ${getTzAbbr(tz)}` : '';
+
+    const lines = pageRecords.map((r, i) => {
+      const [datePart, timePart] = (r.obsDt || '').split(' ');
+      const fmtDate = datePart ? datePart.split('-').reverse().join('/') : '';
+      const fmtTime = timePart ? `${timePart}${tzAbbr} hrs` : null;
+      const cnt          = r.howMany ? `${r.howMany} bird${r.howMany > 1 ? 's' : ''}` : 'Present';
+      const checklistUrl = r.subId ? `https://ebird.org/checklist/${r.subId}` : null;
+      const locUrl       = r.locId ? `https://ebird.org/hotspot/${r.locId}` : null;
+      const locLabel     = escHtml(r.locName || 'Unknown location');
+      const locText      = locUrl ? `<a href="${locUrl}">${locLabel}</a>` : `<b>${locLabel}</b>`;
+      const mapsUrl      = (r.lat && r.lng) ? `https://www.google.com/maps?q=${r.lat},${r.lng}` : null;
+      const coordLabel   = (r.lat && r.lng) ? `${Number(r.lat).toFixed(4)}, ${Number(r.lng).toFixed(4)}` : null;
+      const observer     = r.userDisplayName ? escHtml(r.userDisplayName) : null;
+
+      const breedCode = r.breedingCode || null;
+      const breedDesc = breedCode ? (BREEDING_CODES[breedCode] || breedCode) : null;
+
+      let entry = `<b>${start + i + 1}. ${locText}</b>\n`;
+      entry += `   🔍 Count: <b>${cnt}</b>\n`;
+      entry += `   🔬 ${r.ageSex ? escHtml(r.ageSex) : '—'}\n`;
+      if (fmtDate) entry += `   📅 ${fmtDate}\n`;
+      if (fmtTime) entry += `   🕒 ${fmtTime}\n`;
+      if (checklistUrl) entry += `   🔗 <a href="${checklistUrl}">View Checklist</a>\n`;
+      if (coordLabel) entry += `   🗺️ <a href="${mapsUrl}">${coordLabel}</a>\n`;
+      if (observer) entry += `   👤 ${observer}\n`;
+      if (breedCode) entry += `   🐣 ${escHtml(breedCode)} — ${escHtml(breedDesc)}\n`;
+      if (r.comments) entry += `   💬 ${escHtml(r.comments)}\n`;
+      return entry.trimEnd();
+    });
+
+    const header = `🐦 <b>${escHtml(speciesName)} Sightings — ${escHtml(location)}</b>\n` +
+      `Page ${page + 1} of ${totalPages} · ${records.length} total\n\n`;
+    const text = header + lines.join('\n\n');
+
+    // Pagination row: << < [page/total] > >>
+    const isFirst = page === 0;
+    const isLast  = page >= totalPages - 1;
+    const navRow  = [
+      { text: '⏮', callback_data: isFirst ? 'ebird_noop' : 'ebird_page_0' },
+      { text: '◀️', callback_data: isFirst ? 'ebird_noop' : `ebird_page_${page - 1}` },
+      { text: `${page + 1}/${totalPages}`, callback_data: 'ebird_noop' },
+      { text: '▶️', callback_data: isLast  ? 'ebird_noop' : `ebird_page_${page + 1}` },
+      { text: '⏭', callback_data: isLast  ? 'ebird_noop' : `ebird_page_${totalPages - 1}` },
+    ];
+
+    const buttons = [navRow];
+    buttons.push([
+      { text: '🔢 Jump to Page', callback_data: 'ebird_jump' },
+      { text: '❌ Close', callback_data: 'ebird_close' },
+    ]);
+
+    return { text, keyboard: { inline_keyboard: buttons } };
+  }
+
+  bot.on('callback_query', async (query) => {
+    const { data } = query;
+    if (data === 'ebird_noop') { bot.answerCallbackQuery(query.id); return; }
+
+    // Close — delete the sightings message
+    if (data === 'ebird_close') {
+      bot.answerCallbackQuery(query.id);
+      await bot.deleteMessage(query.message.chat.id, query.message.message_id).catch(() => {});
+      return;
+    }
+
+    // Jump to page — ask user for page number
+    if (data === 'ebird_jump') {
+      const userId = query.from?.id;
+      const cached = ebirdSightingsCache.get(userId);
+      if (!cached) { bot.answerCallbackQuery(query.id); return; }
+      const totalPages = Math.ceil(cached.records.length / SIGHTINGS_PER_PAGE);
+      bot.answerCallbackQuery(query.id);
+      pending.set(query.message.chat.id, {
+        ...pending.get(query.message.chat.id),
+        awaitingEbirdJump: true,
+        ebirdJumpMsgId: query.message.message_id,
+        ebirdTotalPages: totalPages,
+      });
+      await bot.sendMessage(query.message.chat.id, `🔢 Enter a page number (1–${totalPages}):`)
+        .catch(() => {});
+      return;
+    }
+
+    if (!data || !data.startsWith('ebird_page_')) return;
+
+    const page   = parseInt(data.replace('ebird_page_', ''), 10) || 0;
+    const userId = query.from?.id;
+    bot.answerCallbackQuery(query.id);
+
+    const cached = ebirdSightingsCache.get(userId);
+    if (!cached || !cached.records.length) {
+      await bot.answerCallbackQuery(query.id, {
+        text: 'Sightings session expired. Please send a new photo to see sightings.',
+        show_alert: true,
+      }).catch(() => {});
+      return;
+    }
+
+    const { text, keyboard } = await buildSightingsPage(cached.records, page, cached.location, cached.speciesName, cached.regionCode);
+
+    // First page: send a new message. Subsequent pages: edit the existing one.
+    if (page === 0 && query.message.photo) {
+      // Button was on the photo — send a new text message for the list
+      await bot.sendMessage(query.message.chat.id, text, {
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        reply_markup: keyboard,
+      }).catch(() => {});
+    } else {
+      await bot.editMessageText(text, {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        reply_markup: keyboard,
+      }).catch(async () => {
+        // If edit fails (e.g. message too old), send fresh
+        await bot.sendMessage(query.message.chat.id, text, {
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+          reply_markup: keyboard,
+        }).catch(() => {});
+      });
     }
   });
 
@@ -798,6 +1001,8 @@ module.exports = function registerIdentify(bot) {
 };
 
 module.exports.clearEndedSession = clearEndedSession;
+/** Clear a pending location-wait for a user so birdMenu can handle their next message. */
+module.exports.clearPending = (userId) => { if (userId) pending.delete(userId); };
 
 // ── Run identification ────────────────────────────────────────────────────────
 
@@ -819,6 +1024,13 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
     }
 
     const data = result.data;
+    // ── Sex/gender debug ──────────────────────────────────────────────────────
+    logger.info('[identify] Gemini sex fields', {
+      sex: data.sex,
+      sexConfidence: data.sexConfidence,
+      sexMethod: data.sexMethod,
+    });
+    // ─────────────────────────────────────────────────────────────────────────
     const tax = data.taxonomy || {};
     const isBird = ['aves', 'bird'].some(k => (tax.class || '').toLowerCase().includes(k));
 
@@ -891,6 +1103,9 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
     let inatSlug = null;
     let logCountry = options.location || '';
     let locationCoords = null;
+    let speciesRecentRecords = [];
+    let speciesSightingsLocation = options.location || '';
+    let ebirdRegionForCaption = '';  // subnational or country code for eBird species URL
     if (!isBird && (data.scientificName || data.commonName)) {
       const inatData = await getSpeciesPhoto(data.scientificName || data.commonName).catch(() => null);
       if (inatData && inatData.taxonSlug) inatSlug = inatData.taxonSlug;
@@ -921,7 +1136,8 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
       }
 
       let sgAbundance = null;
-      if (speciesSlug) {
+      const isSingapore = countryCode === 'SG' || (!options.location && country.toLowerCase().includes('singapore'));
+      if (isSingapore && speciesSlug) {
         try {
           const sgUrl = `https://singaporebirds.com/species/${speciesSlug}/`;
           const resp = await axios.get(sgUrl, { headers: { 'User-Agent': 'WildlifeBot/1.0' } });
@@ -946,28 +1162,74 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
           locationCoords = await geocodeLocation(options.location).catch(() => null);
         }
         if (locationCoords) {
-          if (gbifUsageKey) {
-            gbifOcc = await checkOccurrencesAtLocation(gbifUsageKey, locationCoords).catch(() => ({ count: 0 }));
-          }
-          if (ebirdSpeciesCode) {
-            ebirdLocal = await getNearbySpeciesObservations(ebirdSpeciesCode, { ...locationCoords }).catch(() => ({ found: false, count: 0 }));
-          }
           countryCode = (locationCoords.country_code || countryCode || '').toUpperCase();
           country = locationCoords.country || country;
         }
       }
 
-      // No. of Sightings is species + country only (independent of subspecies checks).
+      // Resolve boundary scope: subnational (e.g. JP-20 = Nagano) or country (e.g. JP = Japan).
+      // This is used for BOTH local-status classification AND sightings records.
+      const resolvedCountryCode = (locationCoords?.country_code || countryCode || '').toUpperCase();
+      // Strip common admin suffixes Nominatim appends (e.g. "Nagano Prefecture" → "Nagano")
+      const stateName = (locationCoords?.state || '')
+        .replace(/\s+(prefecture|province|state|region|district|county|oblast|krai|shire|department)$/i, '')
+        .trim();
+
+      // Fast path: Nominatim ISO3166-2-lvl4 → direct eBird subnational code
+      let subnationalCode = null;
+      if (locationCoords?.isoSubdivision && /^[A-Z]{2}-/.test(locationCoords.isoSubdivision)) {
+        subnationalCode = locationCoords.isoSubdivision;
+      }
+      // Slow path: name-based lookup via eBird region list API
+      if (!subnationalCode && resolvedCountryCode && stateName && options.location) {
+        subnationalCode = await getEBirdSubnationalCode(resolvedCountryCode, stateName).catch(() => null);
+      }
+
+      // Boundary label shown in canvas + sightings header
+      // When stateName is empty (prefecture-level search where Nominatim omits state),
+      // fall back to the user's raw location string which already contains the full name.
+      speciesSightingsLocation = subnationalCode
+        ? (stateName
+            ? `${stateName}, ${locationCoords?.country || country}`
+            : (options.location || locationCoords?.country || country || 'Unknown location'))
+        : (locationCoords?.country || country || options.location || 'Unknown location');
+      ebirdRegionForCaption = subnationalCode || resolvedCountryCode || '';
+
+      // GBIF occurrence + eBird local — both within the resolved boundary
+      if (locationCoords) {
+        if (gbifUsageKey) {
+          gbifOcc = await checkOccurrencesAtLocation(gbifUsageKey, locationCoords).catch(() => ({ count: 0 }));
+        }
+        if (ebirdSpeciesCode) {
+          const ebirdLocalQuery = subnationalCode
+            ? { subnationalCode }
+            : resolvedCountryCode
+              ? { countryCode: resolvedCountryCode, isCountryOnly: true }
+              : { ...locationCoords };
+          ebirdLocal = await getNearbySpeciesObservations(ebirdSpeciesCode, ebirdLocalQuery).catch(() => ({ found: false, count: 0 }));
+        }
+      }
+
+      // No. of Sightings records — same boundary scope
       let speciesCountrySightingsCount = 0;
-      const speciesSightingsLocation = locationCoords?.country || country || options.location || 'Unknown location';
+      logger.info(`[identify] Sightings lookup: code=${ebirdSpeciesCodeForSightings}, subnational=${subnationalCode}, country=${resolvedCountryCode}`);
       if (ebirdSpeciesCodeForSightings) {
-        const resolvedCountryCode = (locationCoords?.country_code || countryCode || '').toUpperCase();
-        if (resolvedCountryCode) {
+        if (subnationalCode) {
+          const ebirdSub = await getNearbySpeciesObservations(
+            ebirdSpeciesCodeForSightings,
+            { subnationalCode }
+          ).catch(() => ({ found: false, count: 0, records: [] }));
+          speciesCountrySightingsCount = ebirdSub?.count || 0;
+          speciesRecentRecords = ebirdSub?.records || [];
+          logger.info(`[identify] Subnational result: count=${speciesCountrySightingsCount}, records=${speciesRecentRecords.length}`);
+        } else if (resolvedCountryCode) {
           const ebirdCountry = await getNearbySpeciesObservations(
             ebirdSpeciesCodeForSightings,
             { countryCode: resolvedCountryCode, isCountryOnly: true }
-          ).catch(() => ({ found: false, count: 0 }));
+          ).catch(() => ({ found: false, count: 0, records: [] }));
           speciesCountrySightingsCount = ebirdCountry?.count || 0;
+          speciesRecentRecords = ebirdCountry?.records || [];
+          logger.info(`[identify] Country result: count=${speciesCountrySightingsCount}, records=${speciesRecentRecords.length}`);
         }
       }
 
@@ -1026,7 +1288,7 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
         }
       }
 
-      if (country.toLowerCase() === 'singapore') {
+      if (isSingapore) {
         // Abundance: prefer singaporebirds.com, fallback to GBIF+eBird classification
         if (sgAbundance) {
           data.abundance = sgAbundance;
@@ -1118,11 +1380,28 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
 
     await bot.deleteMessage(chatId, statusMsg.message_id).catch(() => {});
 
+    // Cache eBird sightings records before sending so the button is ready
+    const userId = options.user?.id;
+    if (userId && speciesRecentRecords.length > 0) {
+      ebirdSightingsCache.set(userId, {
+        records: speciesRecentRecords,
+        location: speciesSightingsLocation,
+        speciesName: data.commonName || data.scientificName || 'Species',
+        regionCode: ebirdRegionForCaption || '',
+      });
+    } else if (userId) {
+      ebirdSightingsCache.delete(userId);
+    }
+
+    const photoKeyboard = speciesRecentRecords.length > 0
+      ? { inline_keyboard: [[{ text: '🔍 Sightings', callback_data: 'ebird_page_0' }]] }
+      : undefined;
+
     if (canvas) {
       const sentMsg = await bot.sendPhoto(
         chatId,
         canvas,
-        { caption, parse_mode: 'HTML' },
+        { caption, parse_mode: 'HTML', reply_markup: photoKeyboard },
         { filename: 'identification.jpg', contentType: 'image/jpeg' }
       );
       // Log to Google Sheets — fire-and-forget, never block the response
@@ -1135,6 +1414,7 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
         user: options.user,
         species,
         canvasFileId,
+        location: options.location || '',
         country: logCountry,
         chatId,
         sessionId: resolvedSessionId,
@@ -1142,7 +1422,7 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
         channelName: options.channelName || '',
       }).catch(() => {});
     } else {
-      await bot.sendMessage(chatId, caption, { parse_mode: 'HTML' });
+      await bot.sendMessage(chatId, caption, { parse_mode: 'HTML', reply_markup: photoKeyboard });
     }
 
     if (options.visualQuestion && data.visualQuestionAnswer) {
@@ -1153,18 +1433,14 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
       );
     }
 
-    // Prompt user to continue or stop
+    // Continue / Stop prompt (no sightings button here — it's on the photo)
     await bot.sendMessage(
       chatId,
       '❓ Would you like to identify another animal?',
-      {
-        reply_markup: {
-          inline_keyboard: [[
-            { text: '✅ Continue', callback_data: 'identify_continue' },
-            { text: '🛑 Stop',     callback_data: 'identify_stop'     },
-          ]],
-        },
-      }
+      { reply_markup: { inline_keyboard: [[
+        { text: '✅ Continue', callback_data: 'identify_continue' },
+        { text: '🛑 Stop',     callback_data: 'identify_stop'     },
+      ]] } }
     );
   } catch (err) {
     await bot.deleteMessage(chatId, statusMsg.message_id).catch(() => {});
@@ -1179,7 +1455,10 @@ function buildCaption(data, ebirdSpeciesCode, inatSlug) {
   const isBird = (data.taxonomy && ['aves', 'bird'].some(k => (data.taxonomy.class || '').toLowerCase().includes(k)));
   const links = [];
   if (isBird) {
-    if (ebirdSpeciesCode) links.push(`🐦 <a href="https://ebird.org/species/${ebirdSpeciesCode}">eBird</a>`);
+    if (ebirdSpeciesCode) {
+      links.push(`🐦 <a href="https://ebird.org/species/${ebirdSpeciesCode}">eBird</a>`);
+      links.push(`🌍 <a href="https://birdsoftheworld.org/bow/species/${ebirdSpeciesCode}">Birds of the World</a>`);
+    }
   } else {
     const inatUrl = inatSlug
       ? `https://www.inaturalist.org/taxa/${inatSlug}`
