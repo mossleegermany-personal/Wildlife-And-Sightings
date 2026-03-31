@@ -16,7 +16,7 @@ const identifyPromptMessages = new Map();
 const sheetsService = require('../../../database/googleSheets/services/googleSheetsService');
 const logger = require('../../../src/utils/logger');
 const { startAddSightingSession }  = require('../commands/addSighting');
-const { SIGHTINGS_CATEGORY_MENU, ensureActiveBirdSession }  = require('../commands/birdMenu');
+const { SIGHTINGS_CATEGORY_MENU }  = require('../commands/birdMenu');
 
 // chatId -> { sn, sessionId } — in-memory dedup guard for Animal Identification sessions
 const identifySessionMap = new Map();
@@ -167,7 +167,7 @@ const CALLBACKS = {
     bot.answerCallbackQuery(query.id);
     const chat = query.message.chat;
     const user = query.from;
-    ensureActiveBirdSession(chat, user).catch(() => {});
+    require('../commands/birdMenu').ensureActiveBirdSession(chat, user).catch(() => {});
     bot.sendMessage(
       chat.id,
       `<b>🐦 Bird Sightings</b>\n\nChoose a category to explore:`,
