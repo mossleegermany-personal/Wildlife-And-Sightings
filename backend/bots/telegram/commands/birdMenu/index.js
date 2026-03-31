@@ -14,7 +14,8 @@
 
 const logger                 = require('../../../../src/utils/logger');
 const { ebird, sheetsService } = require('./services');
-const { ITEMS_PER_PAGE }     = require('./constants');
+const { ITEMS_PER_PAGE, SIGHTINGS_CATEGORY_MENU } = require('./constants');
+const { ensureActiveBirdSession, endBirdSession } = require('./session');
 const { esc }                = require('./helpers');
 const { toRegionCode }       = require('./location');
 const { resolveRegionCode }  = require('./location');
@@ -49,24 +50,6 @@ function getIdentify() {
   return _identify;
 }
 
-// ── Category menu ─────────────────────────────────────────────────────────────
-
-const SIGHTINGS_CATEGORY_MENU = {
-  parse_mode: 'Markdown',
-  reply_markup: {
-    inline_keyboard: [
-      [
-        { text: '🐦 eBird',   callback_data: 'bird_sightings' },
-        { text: '📓 My Logs', callback_data: 'bird_logs'      },
-      ],
-      [
-        { text: '✅ Done', callback_data: 'done' },
-      ],
-    ],
-  },
-};
-
-
 // ── clearSession ──────────────────────────────────────────────────────────────
 
 function clearSession(chatId) {
@@ -76,57 +59,6 @@ function clearSession(chatId) {
     observationsCache.delete(`${t}_${chatId}`)
   );
   // Note: birdSessionMap is intentionally NOT cleared here — session spans the full interaction
-}
-
-// ── Bird Sightings session helpers ────────────────────────────────────────────
-
-async function ensureActiveBirdSession(chat, user) {
-  const chatId    = chat?.id;
-  const chatType  = chat?.type || 'private';
-  const chatTitle = chat?.title || null;
-  const sender    = (user?.username ? `@${user.username}` : [user?.first_name, user?.last_name].filter(Boolean).join(' '))
-    || 'Unknown';
-
-  if (birdSessionMap.has(chatId)) return birdSessionMap.get(chatId);
-
-  try {
-    const latest = await sheetsService.getLatestSessionStatus({
-      subBot: 'Bird Sightings',
-      chatId,
-      sender,
-      chatType,
-    });
-
-    if (latest && String(latest.status || '').toLowerCase() === 'active') {
-      const session = { sn: latest.sn, sessionId: latest.sessionId || '' };
-      birdSessionMap.set(chatId, session);
-      return session;
-    }
-
-    const started = await sheetsService.logSessionStart({
-      subBot: 'Bird Sightings',
-      chatId,
-      chatTitle,
-      user,
-      chatType,
-      startTime: new Date(),
-    });
-    const session = { sn: started?.sn || null, sessionId: started?.sessionId || '' };
-    birdSessionMap.set(chatId, session);
-    return session;
-  } catch (err) {
-    logger.warn('[birdMenu] ensureActiveBirdSession failed', { error: err.message });
-    return { sn: null, sessionId: '' };
-  }
-}
-
-function endBirdSession(chatId) {
-  const session = birdSessionMap.get(chatId);
-  birdSessionMap.delete(chatId);
-  if (session?.sn != null) {
-    sheetsService.updateSessionEnd(session.sn, new Date(), 'Ended')
-      .catch(err => logger.warn('[birdMenu] Failed to end Bird Sightings session', { error: err.message }));
-  }
 }
 
 // ── registerBirdMenu ──────────────────────────────────────────────────────────

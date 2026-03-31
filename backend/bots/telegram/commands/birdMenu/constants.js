@@ -151,8 +151,24 @@ const AGE_LABELS = {
 };
 const SEX_ICONS  = { m: ' ♂', f: ' ♀', u: ' ?' };
 
+const SIGHTINGS_CATEGORY_MENU = {
+  parse_mode: 'Markdown',
+  reply_markup: {
+    inline_keyboard: [
+      [
+        { text: '🐦 eBird',   callback_data: 'bird_sightings' },
+        { text: '📓 My Logs', callback_data: 'bird_logs'      },
+      ],
+      [
+        { text: '✅ Done', callback_data: 'done' },
+      ],
+    ],
+  },
+};
+
 module.exports = {
   ITEMS_PER_PAGE, LOGS_PER_PAGE,
   LOCATION_TO_CODE, REGION_TIMEZONE,
   BREEDING_CODES, AGE_LABELS, SEX_ICONS,
+  SIGHTINGS_CATEGORY_MENU,
 };
