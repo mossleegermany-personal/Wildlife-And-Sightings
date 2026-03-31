@@ -68,6 +68,7 @@ function registerBirdMenu(bot, addSightingSessions) {
 
   // ── Callback query handler ────────────────────────────────────────────────
   bot.on('callback_query', async (query) => {
+    try {
     const cbData  = query.data || '';
     const chatId  = query.message.chat.id;
     const user    = query.from;
@@ -475,10 +476,14 @@ function registerBirdMenu(bot, addSightingSessions) {
       await bot.sendMessage(chatId, doneMsg);
       return;
     }
+    } catch (err) {
+      logger.error('[birdMenu] Unhandled error in callback_query handler', { cbData: query?.data, error: err.message, stack: err.stack });
+    }
   });
 
   // ── Message handler ───────────────────────────────────────────────────────
   bot.on('message', async (msg) => {
+    try {
     const chatId = msg.chat.id;
 
     // addSighting has priority
@@ -689,6 +694,9 @@ function registerBirdMenu(bot, addSightingSessions) {
         await bot.sendMessage(chatId, '❌ Could not set up live updates. Please try again.', { parse_mode: 'Markdown' });
       }
       return;
+    }
+    } catch (err) {
+      logger.error('[birdMenu] Unhandled error in message handler', { action: userStates.get(msg?.chat?.id)?.action, error: err.message });
     }
   });
 }

@@ -64,13 +64,11 @@ function createBot(app) {
     webHook: { autoOpen: false },
   });
 
-  // Silently swallow stale/expired callback query errors (ETELEGRAM 400).
-  // These fire on Azure when cold-start delay exceeds Telegram's ~60 s window.
+  // answerCallbackQuery is always fire-and-forget — swallow every error.
+  // On Azure, queries can be stale (400) or face transient network errors;
+  // either way crashing the process for a non-answer is never correct.
   const _answerCbq = bot.answerCallbackQuery.bind(bot);
-  bot.answerCallbackQuery = (...args) => _answerCbq(...args).catch((err) => {
-    if (err?.response?.body?.error_code === 400) return;
-    throw err;
-  });
+  bot.answerCallbackQuery = (...args) => _answerCbq(...args).catch(() => {});
 
   // Register menu callbacks (inline buttons)
   registerMainMenu(bot);
