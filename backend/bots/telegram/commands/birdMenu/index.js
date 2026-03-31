@@ -506,7 +506,7 @@ function registerBirdMenu(bot, addSightingSessions) {
 
     if (cbData === 'live_type_species') {
       bot.answerCallbackQuery(query.id);
-      try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+      try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore ok*/ }
       userStates.set(chatId, { action: 'awaiting_live_species' });
       return bot.sendMessage(chatId,
         `🦆 *Enter species and location:*\n\nFormat: \`Species Name, Location\`\n\nExamples:\n• \`House Sparrow, Singapore\`\n• \`Oriental Magpie-Robin, Botanic Gardens, Singapore\``,
