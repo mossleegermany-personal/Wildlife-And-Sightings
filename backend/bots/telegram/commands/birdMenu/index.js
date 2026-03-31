@@ -67,8 +67,14 @@ function registerBirdMenu(bot, addSightingSessions) {
   addSightingSessions = addSightingSessions ?? null;
 
   // ── Callback query handler ────────────────────────────────────────────────
-  bot.on('callback_query', async (query) => {
+  // NOTE: `(async () => { ... })().catch(...)` is intentional.
+  // Inside an async function, `return somePromise` exits the try block
+  // WITHOUT triggering the catch — only `await` or `throw` do.
+  // The outer .catch() handles those missed rejections.
+  bot.on('callback_query', (query) => {
+    (async () => {
     try {
+    logger.info('[birdMenu] callback_query received', { cbData: query?.data });
     const cbData  = query.data || '';
     const chatId  = query.message.chat.id;
     const user    = query.from;
@@ -479,10 +485,14 @@ function registerBirdMenu(bot, addSightingSessions) {
     } catch (err) {
       logger.error('[birdMenu] Unhandled error in callback_query handler', { cbData: query?.data, error: err.message, stack: err.stack });
     }
+    })().catch(err => {
+      logger.error('[birdMenu] Unhandled error in callback_query handler (outer)', { cbData: query?.data, error: err?.message, stack: err?.stack });
+    });
   });
 
   // ── Message handler ───────────────────────────────────────────────────────
-  bot.on('message', async (msg) => {
+  bot.on('message', (msg) => {
+    (async () => {
     try {
     const chatId = msg.chat.id;
 
@@ -698,6 +708,9 @@ function registerBirdMenu(bot, addSightingSessions) {
     } catch (err) {
       logger.error('[birdMenu] Unhandled error in message handler', { action: userStates.get(msg?.chat?.id)?.action, error: err.message });
     }
+    })().catch(err => {
+      logger.error('[birdMenu] Unhandled error in message handler (outer)', { error: err?.message, stack: err?.stack });
+    });
   });
 }
 
