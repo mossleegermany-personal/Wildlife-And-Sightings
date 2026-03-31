@@ -12,7 +12,7 @@
  * Constants are in birdMenuConstants.js. ok
  */
 
-const logger                 = require('../../../../src/utils/logger');
+const logger = require('../../../../src/utils/logger');
 const { ebird, sheetsService } = require('./services');
 const { ITEMS_PER_PAGE, SIGHTINGS_CATEGORY_MENU } = require('./constants');
 const { ensureActiveBirdSession, endBirdSession } = require('./session');
