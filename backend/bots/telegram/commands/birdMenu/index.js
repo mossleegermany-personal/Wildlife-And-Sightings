@@ -9,7 +9,7 @@
  * Location resolution is in birdMenuLocation.js.
  * Shared state (Maps) is in birdMenuState.js.
  * Service singletons are in birdMenuServices.js.
- * Constants are in birdMenuConstants.js.
+ * Constants are in birdMenuConstants.js. ok
  */
 
 const logger                 = require('../../../../src/utils/logger');
