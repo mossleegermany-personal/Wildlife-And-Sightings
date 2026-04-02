@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Backend (debug)",
+      "cwd": "${workspaceFolder}/backend",
+      "program": "${workspaceFolder}/backend/bin/www",
+      "envFile": "${workspaceFolder}/backend/.env",
+      "env": {
+        "LOG_LEVEL": "debug"
+      },
+      "console": "integratedTerminal",
+      "outputCapture": "std",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}
