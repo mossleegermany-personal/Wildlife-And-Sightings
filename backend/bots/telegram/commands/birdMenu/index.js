@@ -69,21 +69,14 @@ function clearSession(chatId) {
   // Note: birdSessionMap is intentionally NOT cleared here — session spans the full interaction
 }
 
-// ── registerBirdMenu ──────────────────────────────────────────────────────────
+// ── handleBirdCallback ───────────────────────────────────────────────────────
+// Called directly from mainMenu's callback_query listener for all bird-related
+// callbacks. This bypasses the need for a second bot.on('callback_query', ...)
+// which was silently failing to register on Azure.
 
-function registerBirdMenu(bot, addSightingSessions) {
-  addSightingSessions = addSightingSessions ?? null;
-  logger.info('[birdMenu] registerBirdMenu called — registering callback_query listener');
-
-  // ── Callback query handler ────────────────────────────────────────────────
-  // NOTE: `(async () => { ... })().catch(...)` is intentional.
-  // Inside an async function, `return somePromise` exits the try block
-  // WITHOUT triggering the catch — only `await` or `throw` do.
-  // The outer .catch() handles those missed rejections.
-  bot.on('callback_query', (query) => {
-    // Synchronous log — confirms this listener fires regardless of async behaviour
-    logger.info('[birdMenu] callback_query listener fired', { cbData: query?.data });
-    (async () => {
+function handleBirdCallback(bot, query) {
+  logger.info('[birdMenu] handleBirdCallback called', { cbData: query?.data });
+  (async () => {
     try {
     const cbData  = query.data || '';
     const chatId  = query.message?.chat?.id;
@@ -505,10 +498,16 @@ function registerBirdMenu(bot, addSightingSessions) {
     } catch (err) {
       logger.error('[birdMenu] Unhandled error in callback_query handler', { cbData: query?.data, error: err.message, stack: err.stack });
     }
-    })().catch(err => {
-      logger.error('[birdMenu] Unhandled error in callback_query handler (outer)', { cbData: query?.data, error: err?.message, stack: err?.stack });
-    });
+  })().catch(err => {
+    logger.error('[birdMenu] Unhandled error in callback_query handler (outer)', { cbData: query?.data, error: err?.message, stack: err?.stack });
   });
+}
+
+// ── registerBirdMenu ──────────────────────────────────────────────────────────
+
+function registerBirdMenu(bot, addSightingSessions) {
+  addSightingSessions = addSightingSessions ?? null;
+  logger.info('[birdMenu] registerBirdMenu called');
 
   // ── Message handler ───────────────────────────────────────────────────────
   bot.on('message', (msg) => {
@@ -734,4 +733,4 @@ function registerBirdMenu(bot, addSightingSessions) {
   });
 }
 
-module.exports = { registerBirdMenu, SIGHTINGS_CATEGORY_MENU, clearSession };
+module.exports = { registerBirdMenu, handleBirdCallback, SIGHTINGS_CATEGORY_MENU, clearSession };

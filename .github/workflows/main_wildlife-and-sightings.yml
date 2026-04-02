@@ -59,6 +59,14 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_34EB0DCAA25F428E8082F1F49C7D6015 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_FFAA30EC4E4046B1ADCA226C8578B41C }}
 
+      - name: 'Deploy to Azure Web App'
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'wildlife-and-sightings'
+          slot-name: 'Production'
+          package: backend
+
       - name: Configure Azure App Settings from GitHub Secrets
         uses: azure/CLI@v2
         env:
@@ -104,14 +112,6 @@ jobs:
                 GOOGLE_DRIVE_FOLDER_ID="$GOOGLE_DRIVE_FOLDER_ID" \
                 SCM_DO_BUILD_DURING_DEPLOYMENT="true"
 
-      - name: 'Deploy to Azure Web App'
-        id: deploy-to-webapp
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: 'wildlife-and-sightings'
-          slot-name: 'Production'
-          package: backend
-
       - name: 'Restart Azure Web App to clear runtime cache'
         uses: azure/CLI@v2
         with:
@@ -119,4 +119,3 @@ jobs:
             az webapp restart \
               --name wildlife-and-sightings \
               --resource-group "$(az webapp list --query "[?name=='wildlife-and-sightings'].resourceGroup | [0]" -o tsv)"
-          
