@@ -19,7 +19,7 @@ const { ensureActiveBirdSession, endBirdSession } = require('./session');
 const { esc }                = require('./helpers');
 const { toRegionCode }       = require('./location');
 const { resolveRegionCode }  = require('./location');
-const { startLiveUpdate, stopLiveUpdate, getLiveUpdate } = require('./liveUpdates');
+// const { startLiveUpdate, stopLiveUpdate, getLiveUpdate } = require('./liveUpdates');
 
 const {
   userStates, observationsCache, lastPrompts, birdSessionMap,
@@ -100,9 +100,9 @@ function registerBirdMenu(bot, addSightingSessions) {
               { text: '📍 Nearby',   callback_data: 'bird_nearby'     },
               { text: '🦆 Species',  callback_data: 'bird_species'    },
             ],
-            [
-              { text: '🔔 Live Updates', callback_data: 'bird_live_updates' },
-            ],
+            // [
+            //   { text: '🔔 Live Updates', callback_data: 'bird_live_updates' },
+            // ],
             [
               { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
               { text: '✅ Done',    callback_data: 'done'            },
@@ -360,9 +360,9 @@ function registerBirdMenu(bot, addSightingSessions) {
               { text: '📍 Nearby',   callback_data: 'bird_nearby'     },
               { text: '🦆 Species',  callback_data: 'bird_species'    },
             ],
-            [
-              { text: '🔔 Live Updates', callback_data: 'bird_live_updates' },
-            ],
+            // [
+            //   { text: '🔔 Live Updates', callback_data: 'bird_live_updates' },
+            // ],
             [
               { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
               { text: '✅ Done',    callback_data: 'done'            },
@@ -372,8 +372,8 @@ function registerBirdMenu(bot, addSightingSessions) {
       });
     }
 
-    // ── Live Updates (coming soon) ────────────────────────────────────────
-    if (cbData === 'bird_live_updates') {
+    // ── Live Updates [DISABLED] ────────────────────────────────────────────
+    if (false /* DISABLED: live_updates */ && cbData === 'bird_live_updates') {
       bot.answerCallbackQuery(query.id);
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       const sub = getLiveUpdate(chatId);
@@ -409,7 +409,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       );
     }
 
-    if (cbData === 'live_setup') {
+    if (false /* DISABLED: live_updates */ && cbData === 'live_setup') {
       bot.answerCallbackQuery(query.id);
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       return bot.sendMessage(chatId,
@@ -426,7 +426,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       );
     }
 
-    if (cbData === 'live_type_sightings' || cbData === 'live_type_notable') {
+    if (false /* DISABLED: live_updates */ && (cbData === 'live_type_sightings' || cbData === 'live_type_notable')) {
       bot.answerCallbackQuery(query.id);
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       const liveType = cbData === 'live_type_sightings' ? 'sightings' : 'notable';
@@ -443,7 +443,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       );
     }
 
-    if (cbData === 'live_type_species') {
+    if (false /* DISABLED: live_updates */ && cbData === 'live_type_species') {
       bot.answerCallbackQuery(query.id);
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore ok*/ }
       userStates.set(chatId, { action: 'awaiting_live_species' });
@@ -458,7 +458,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       );
     }
 
-    if (cbData === 'live_stop') {
+    if (false /* DISABLED: live_updates */ && cbData === 'live_stop') {
       bot.answerCallbackQuery(query.id);
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       stopLiveUpdate(chatId);
@@ -475,11 +475,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       clearSession(chatId);
       endBirdSession(chatId);
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      const liveStillActive = !!getLiveUpdate(chatId);
-      const doneMsg = liveStillActive
-        ? '✅ Session ended. Use /start to begin again.\n\n🔔 Live Updates are still running in the background.'
-        : '✅ Session ended. Use /start to begin again.';
-      await bot.sendMessage(chatId, doneMsg);
+      await bot.sendMessage(chatId, '✅ Session ended. Use /start to begin again.');
       return;
     }
     } catch (err) {
@@ -627,8 +623,8 @@ function registerBirdMenu(bot, addSightingSessions) {
       return;
     }
 
-    // ── Live Update: location input (sightings / notable) ──────────────
-    if (action === 'awaiting_live_location') {
+    // ── Live Update: location input (sightings / notable) [DISABLED] ──────────────
+    if (false /* DISABLED: live_updates */ && action === 'awaiting_live_location') {
       userStates.delete(chatId);
       const { liveType } = state;
       const _st = await bot.sendMessage(chatId, `🔍 Setting up live updates for *${esc(text)}*...`, { parse_mode: 'Markdown' });
@@ -655,8 +651,8 @@ function registerBirdMenu(bot, addSightingSessions) {
       return;
     }
 
-    // ── Live Update: species + location input ───────────────────────────
-    if (action === 'awaiting_live_species') {
+    // ── Live Update: species + location input [DISABLED] ───────────────────────────
+    if (false /* DISABLED: live_updates */ && action === 'awaiting_live_species') {
       const commaIdx = text.indexOf(',');
       if (commaIdx === -1) {
         await bot.sendMessage(chatId,
