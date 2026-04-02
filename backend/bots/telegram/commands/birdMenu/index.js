@@ -32,6 +32,8 @@ const {
   sendSummaryMessage, sendForwardableMessage,
 } = require('./pagination');
 
+const { sendEbirdSubmenu } = require('./ui');
+
 const {
   showDateSelection, showSpeciesDateSelection,
   handleDateCallback, handleCustomDateInput,
@@ -100,48 +102,11 @@ function handleBirdCallback(bot, query) {
     logger.info('[birdMenu] callback_query received', { cbData, chatId });
 
     // ── Category navigation ───────────────────────────────────────────────
-    if (cbData === 'bird_sightings') {
+    if (cbData === 'bird_sightings' || cbData === 'ebird_sightings') {
       bot.answerCallbackQuery(query.id);
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
-      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      logger.info('[birdMenu] bird_sightings: sending eBird submenu', { chatId });
-      try {
-        await bot.sendMessage(chatId, '*🐦 eBird Sightings*\n\nChoose a search type:', {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '🔍 Sightings', callback_data: 'ebird_sightings' },
-                { text: '⭐ Notable',   callback_data: 'bird_notable'    },
-              ],
-              [
-                { text: '📍 Nearby',   callback_data: 'bird_nearby'     },
-                { text: '🦆 Species',  callback_data: 'bird_species'    },
-              ],
-              // [
-              //   { text: '🔔 Live Updates', callback_data: 'bird_live_updates' },
-              // ],
-              [
-                { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
-                { text: '✅ Done',    callback_data: 'done'            },
-              ],
-            ],
-          },
-        });
-        logger.info('[birdMenu] bird_sightings: eBird submenu sent OK', { chatId });
-      } catch (sendErr) {
-        logger.error('[birdMenu] bird_sightings: sendMessage failed', { chatId, error: sendErr.message, code: sendErr.code });
-      }
-      return;
-    }
-    if (cbData === 'ebird_sightings') {
-      bot.answerCallbackQuery(query.id);
-      try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      getIdentify().clearPending?.(user?.id);
-      clearSession(chatId);
-      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       return handleSightings(bot, chatId, context);
     }
     if (cbData === 'bird_notable') {
@@ -149,7 +114,6 @@ function handleBirdCallback(bot, query) {
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
-      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       return handleNotable(bot, chatId, context);
     }
     if (cbData === 'bird_nearby') {
@@ -157,7 +121,6 @@ function handleBirdCallback(bot, query) {
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
-      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       return handleNearby(bot, chatId);
     }
     if (cbData === 'bird_hotspot') {
@@ -165,7 +128,6 @@ function handleBirdCallback(bot, query) {
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
-      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       return handleHotspots(bot, chatId);
     }
     if (cbData === 'bird_species') {
@@ -173,21 +135,14 @@ function handleBirdCallback(bot, query) {
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
-      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       return handleSpecies(bot, chatId);
     }
 
-    if (cbData === 'bird_back_sightings') {
+    if (cbData === 'bird_back_sightings' || cbData === 'bird_back_main') {
       bot.answerCallbackQuery(query.id);
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       clearSession(chatId);
-      return bot.sendMessage(chatId, '*🐦 Bird Sightings*\n\nChoose a category to explore:', SIGHTINGS_CATEGORY_MENU);
-    }
-    if (cbData === 'bird_back_main') {
-      bot.answerCallbackQuery(query.id);
-      try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      clearSession(chatId);
-      return bot.sendMessage(chatId, '*🐦 Bird Sightings*\n\nChoose a category to explore:', SIGHTINGS_CATEGORY_MENU);
+      return sendSightingsCategoryMenu(bot, chatId);
     }
     if (cbData === 'bird_logs') {
       bot.answerCallbackQuery(query.id);
@@ -378,7 +333,7 @@ function handleBirdCallback(bot, query) {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: '🔍 Sightings', callback_data: 'ebird_sightings' },
+              { text: '🔍 Sightings', callback_data: 'bird_sightings' },
               { text: '⭐ Notable',   callback_data: 'bird_notable'    },
             ],
             [

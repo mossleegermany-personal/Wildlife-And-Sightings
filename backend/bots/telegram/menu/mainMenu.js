@@ -17,21 +17,8 @@ const sheetsService = require('../../../database/googleSheets/services/googleShe
 const logger = require('../../../src/utils/logger');
 const { startAddSightingSession }  = require('../commands/addSighting');
 const birdFlows = require('../commands/birdMenu/flows');
+const { sendSightingsCategoryMenu, sendEbirdSubmenu } = require('../commands/birdMenu/ui');
 
-// Defined inline — no dependency on any birdMenu file at load time
-const SIGHTINGS_CATEGORY_MENU = {
-  reply_markup: {
-    inline_keyboard: [
-      [
-        { text: '🐦 eBird',   callback_data: 'bird_sightings' },
-        { text: '📓 My Logs', callback_data: 'bird_logs'      },
-      ],
-      [
-        { text: '✅ Done', callback_data: 'done' },
-      ],
-    ],
-  },
-};
 
 // chatId -> { sn, sessionId } — in-memory dedup guard for Animal Identification sessions
 const identifySessionMap = new Map();
@@ -180,14 +167,8 @@ const CALLBACKS = {
 
   async menu_sightings(bot, query) {
     bot.answerCallbackQuery(query.id);
-    const chat = query.message.chat;
-    const user = query.from;
-    // require('../commands/birdMenu/session').ensureActiveBirdSession(chat, user).catch(() => {});
-    bot.sendMessage(
-      chat.id,
-      `<b>🐦 Bird Sightings</b>\n\nChoose a category to explore:`,
-      { ...SIGHTINGS_CATEGORY_MENU, parse_mode: 'HTML' }
-    );
+    const chatId = query.message.chat.id;
+    return sendSightingsCategoryMenu(bot, chatId);
   },
 
   async bird_sightings(bot, query) {
@@ -195,33 +176,11 @@ const CALLBACKS = {
     const chatId = query.message?.chat?.id;
     logger.info('[mainMenu] bird_sightings: sending eBird submenu', { chatId });
     try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    try {
-      await bot.sendMessage(chatId, '*🐦 eBird Sightings*\n\nChoose a search type:', {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '🔍 Sightings', callback_data: 'ebird_sightings' },
-              { text: '⭐ Notable',   callback_data: 'bird_notable'    },
-            ],
-            [
-              { text: '📍 Nearby',   callback_data: 'bird_nearby'     },
-              { text: '🦆 Species',  callback_data: 'bird_species'    },
-            ],
-            [
-              { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
-              { text: '✅ Done',    callback_data: 'done'            },
-            ],
-          ],
-        },
-      });
-      logger.info('[mainMenu] bird_sightings: eBird submenu sent OK', { chatId });
-    } catch (err) {
-      logger.error('[mainMenu] bird_sightings: sendMessage failed', { chatId, error: err.message });
-    }
+    return sendEbirdSubmenu(bot, chatId);
   },
 
-  async ebird_sightings(bot, query) {
+  // Support unified callback in submenu and main menu
+  async bird_sightings(bot, query) {
     bot.answerCallbackQuery(query.id);
     const chatId = query.message?.chat?.id;
     try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
@@ -260,39 +219,21 @@ const CALLBACKS = {
     bot.answerCallbackQuery(query.id);
     const chatId = query.message?.chat?.id;
     try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return bot.sendMessage(chatId, '🐦 eBird Sightings\n\nChoose a category to explore:', SIGHTINGS_CATEGORY_MENU);
+    return sendSightingsCategoryMenu(bot, chatId);
   },
 
   async bird_back_sightings(bot, query) {
     bot.answerCallbackQuery(query.id);
     const chatId = query.message?.chat?.id;
     try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return bot.sendMessage(chatId, '*🐦 eBird Sightings*\n\nChoose a search type:', {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '🔍 Sightings', callback_data: 'ebird_sightings' },
-            { text: '⭐ Notable',   callback_data: 'bird_notable'    },
-          ],
-          [
-            { text: '📍 Nearby',   callback_data: 'bird_nearby'     },
-            { text: '🦆 Species',  callback_data: 'bird_species'    },
-          ],
-          [
-            { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
-            { text: '✅ Done',    callback_data: 'done'            },
-          ],
-        ],
-      },
-    });
+    return sendEbirdSubmenu(bot, chatId);
   },
 
   async done(bot, query) {
     bot.answerCallbackQuery(query.id);
     const chatId = query.message?.chat?.id;
     try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return bot.sendMessage(chatId, '✅ Done! Use the main menu again when ready.', MAIN_MENU);
+    return bot.sendMessage(chatId, '✅ Done! Use the main menu again when ready.', { reply_markup: MAIN_MENU.reply_markup });
   },
 
   menu_addsighting(bot, query) {
