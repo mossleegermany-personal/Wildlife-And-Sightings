@@ -258,6 +258,11 @@ function registerMainMenu(bot, handleBirdCallback) {
     logger.info('[mainMenu] callback_query event emitted', { cbData: query?.data });
     const handler = CALLBACKS[query.data];
     if (handler) { handler(bot, query); return; }
+    if (typeof handleBirdCallback !== 'function') {
+      logger.error('[mainMenu] handleBirdCallback is not a function', { handleBirdCallbackType: typeof handleBirdCallback, cbData: query?.data });
+      bot.answerCallbackQuery(query.id, { text: 'Button not available right now' }).catch(() => {});
+      return;
+    }
     handleBirdCallback(bot, query);
   });
 }

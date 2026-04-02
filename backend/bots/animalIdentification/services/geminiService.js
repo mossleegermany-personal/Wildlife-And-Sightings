@@ -16,9 +16,7 @@ const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const DEFAULT_MODELS = [
   { name: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro Preview' },
-  { name: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' },
-  { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
-  { name: 'gemini-1.5-pro', displayName: 'Gemini 1.5 Pro' },
+  { name: 'deep-research-pro-preview-12-2025', displayName: 'Deep Research Pro Preview' },
 ];
 
 function normalizeModelDisplayName(modelName) {
@@ -57,7 +55,7 @@ const THINKING_BUDGET = Number.parseInt(process.env.GEMINI_THINKING_BUDGET || '1
 
 function buildGenerationConfig(modelName) {
   const config = { ...GENERATION_CONFIG };
-  const supportsThinking = /gemini-(2\.5|3\.)/.test(modelName);
+  const supportsThinking = /gemini-(2\.5|3\.)/.test(modelName) || modelName.includes('deep-research');
   if (THINKING_ENABLED && supportsThinking) {
     config.thinkingConfig = {
       thinkingBudget: Number.isFinite(THINKING_BUDGET) ? THINKING_BUDGET : 1024,

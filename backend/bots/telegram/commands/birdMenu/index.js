@@ -733,4 +733,9 @@ function registerBirdMenu(bot, addSightingSessions) {
   });
 }
 
-module.exports = { registerBirdMenu, handleBirdCallback, SIGHTINGS_CATEGORY_MENU, clearSession };
+// Mutate rather than replace module.exports so that any consumer that received
+// a partial (circular-require) reference to this object still sees the final values.
+module.exports.registerBirdMenu       = registerBirdMenu;
+module.exports.handleBirdCallback     = handleBirdCallback;
+module.exports.SIGHTINGS_CATEGORY_MENU = SIGHTINGS_CATEGORY_MENU;
+module.exports.clearSession           = clearSession;
