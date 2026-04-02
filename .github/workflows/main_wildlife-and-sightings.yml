@@ -26,7 +26,7 @@ jobs:
       - name: npm install, build, and test
         working-directory: backend
         run: |
-          npm install
+          npm ci
           npm run build --if-present
           npm run test --if-present
 
@@ -99,7 +99,8 @@ jobs:
                 GOOGLE_SHEETS_CLIENT_EMAIL="$GOOGLE_SHEETS_CLIENT_EMAIL" \
                 GOOGLE_SHEETS_PRIVATE_KEY="$GOOGLE_SHEETS_PRIVATE_KEY" \
                 GOOGLE_SHEETS_SPREADSHEET_ID="$GOOGLE_SHEETS_SPREADSHEET_ID" \
-                GOOGLE_DRIVE_FOLDER_ID="$GOOGLE_DRIVE_FOLDER_ID"
+                GOOGLE_DRIVE_FOLDER_ID="$GOOGLE_DRIVE_FOLDER_ID" \
+                SCM_DO_BUILD_DURING_DEPLOYMENT="false"
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
@@ -108,4 +109,12 @@ jobs:
           app-name: 'wildlife-and-sightings'
           slot-name: 'Production'
           package: backend
+
+      - name: 'Restart Azure Web App to clear runtime cache'
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            az webapp restart \
+              --name wildlife-and-sightings \
+              --resource-group "$(az webapp list --query "[?name=='wildlife-and-sightings'].resourceGroup | [0]" -o tsv)"
           

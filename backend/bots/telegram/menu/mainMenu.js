@@ -223,6 +223,7 @@ const CALLBACKS = {
 
 function registerMainMenu(bot) {
   bot.on('callback_query', (query) => {
+    logger.info('[mainMenu] callback_query event emitted', { cbData: query?.data });
     const handler = CALLBACKS[query.data];
     if (handler) handler(bot, query);
   });
