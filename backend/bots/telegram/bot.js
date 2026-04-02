@@ -12,6 +12,9 @@
 const TelegramBot = require('node-telegram-bot-api');
 const logger = require('../../src/utils/logger');
 
+// ── Bird menu — must load before mainMenu to avoid circular require ────────────
+const { registerBirdMenu, handleBirdCallback } = require('./commands/birdMenu');
+
 // ── Menu ──────────────────────────────────────────────────────────────────────
 const { registerMainMenu } = require('./menu/mainMenu');
 
@@ -69,9 +72,7 @@ function createBot(app) {
   const _answerCbq = bot.answerCallbackQuery.bind(bot);
   bot.answerCallbackQuery = (...args) => _answerCbq(...args).catch(() => {});
 
-  const { registerBirdMenu, handleBirdCallback } = require('./commands/birdMenu');
-
-  // Register menu callbacks (inline buttons) — pass handleBirdCallback to avoid circular require
+  // Register menu callbacks (inline buttons) — handleBirdCallback pre-loaded at top level
   registerMainMenu(bot, handleBirdCallback);
 
   // Register all command handlers
@@ -84,7 +85,7 @@ function createBot(app) {
   try {
     registerBirdMenu(bot, registerAddSighting.sessions);
   } catch (err) {
-    logger.error('[bot] registerBirdMenu threw during setup — bird_sightings handler NOT registered', { error: err.message, stack: err.stack });
+    logger.error('[bot] registerBirdMenu threw during setup', { error: err.message, stack: err.stack });
   }
   registerHotspots(bot);
   registerSpecies(bot);
