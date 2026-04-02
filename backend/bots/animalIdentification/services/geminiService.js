@@ -15,8 +15,8 @@ const logger = require('../../../src/utils/logger');
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const DEFAULT_MODELS = [
-  { name: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro Preview' },
-  { name: 'deep-research-pro-preview-12-2025', displayName: 'Deep Research Pro Preview' },
+  { name: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' },
+  { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
 ];
 
 function normalizeModelDisplayName(modelName) {
@@ -259,7 +259,14 @@ If you cannot find what the user described, return: {"identified": false, "reaso
   let lastError = null;
   const candidateModels = MODELS.filter((m) => !unavailableModels.has(m.name));
 
+  logger.info('[geminiService] identifyAnimal starting', {
+    configuredModel: process.env.GEMINI_MODEL || null,
+    effectiveModels: candidateModels.map((m) => m.name),
+    thinkingEnabled: THINKING_ENABLED,
+  });
+
   if (!candidateModels.length) {
+    logger.error('[geminiService] no candidate models available', { configuredModel: process.env.GEMINI_MODEL });
     return {
       success: false,
       error: 'No available Gemini models for this API version/project. Set GEMINI_MODEL to a supported model, e.g. gemini-2.5-pro.',

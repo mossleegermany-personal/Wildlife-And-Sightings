@@ -75,14 +75,22 @@ function clearSession(chatId) {
 // which was silently failing to register on Azure.
 
 function handleBirdCallback(bot, query) {
-  logger.info('[birdMenu] handleBirdCallback called', { cbData: query?.data });
+  if (!bot) {
+    logger.error('[birdMenu] handleBirdCallback missing bot instance', { query: query?.data });
+    return;
+  }
+  if (!query || !query.data) {
+    logger.error('[birdMenu] handleBirdCallback missing query or data');
+    return;
+  }
+  logger.info('[birdMenu] handleBirdCallback called', { cbData: query.data, callbackQuery: query });
   (async () => {
     try {
-    const cbData  = query.data || '';
-    const chatId  = query.message?.chat?.id;
-    const user    = query.from;
-    const chat    = query.message?.chat;
-    const context = { user, chat };
+      const cbData  = query.data || '';
+      const chatId  = query.message?.chat?.id;
+      const user    = query.from;
+      const chat    = query.message?.chat;
+      const context = { user, chat };
 
     if (!chatId) {
       logger.warn('[birdMenu] callback_query missing message/chat', { cbData, query: JSON.stringify(query).slice(0, 200) });

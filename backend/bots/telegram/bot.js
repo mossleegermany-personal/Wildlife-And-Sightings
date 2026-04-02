@@ -73,6 +73,7 @@ function createBot(app) {
   bot.answerCallbackQuery = (...args) => _answerCbq(...args).catch(() => {});
 
   // Register menu callbacks (inline buttons) — handleBirdCallback pre-loaded at top level
+  logger.info('[bot] registerMainMenu called', { handleBirdCallbackType: typeof handleBirdCallback });
   registerMainMenu(bot, handleBirdCallback);
 
   // Register all command handlers
