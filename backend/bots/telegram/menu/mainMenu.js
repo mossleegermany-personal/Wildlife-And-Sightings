@@ -273,16 +273,29 @@ function registerMainMenu(bot, handleBirdCallback) {
     const handler = CALLBACKS[query.data];
     if (handler) { handler(bot, query); return; }
 
-    if (typeof resolvedBirdCallback !== 'function') {
+    let callbackFn = resolvedBirdCallback;
+    if (typeof callbackFn !== 'function') {
+      try {
+        const fallbackFn = require('../commands/birdMenu').handleBirdCallback;
+        if (typeof fallbackFn === 'function') {
+          callbackFn = fallbackFn;
+          logger.info('[mainMenu] found fallback birdMenu.handleBirdCallback at invocation');
+        }
+      } catch (err) {
+        logger.warn('[mainMenu] unable to load fallback birdMenu.handleBirdCallback at invocation', { error: err.message });
+      }
+    }
+
+    if (typeof callbackFn !== 'function') {
       logger.error('[mainMenu] handleBirdCallback is not a function', {
-        handleBirdCallbackType: typeof resolvedBirdCallback,
+        handleBirdCallbackType: typeof callbackFn,
         cbData: query?.data,
       });
       bot.answerCallbackQuery(query.id, { text: 'Button not available right now' }).catch(() => {});
       return;
     }
 
-    resolvedBirdCallback(bot, query);
+    callbackFn(bot, query);
   });
 }
 

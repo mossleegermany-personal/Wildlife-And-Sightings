@@ -13,7 +13,8 @@ const TelegramBot = require('node-telegram-bot-api');
 const logger = require('../../src/utils/logger');
 
 // ── Bird menu — must load before mainMenu to avoid circular require ────────────
-const { registerBirdMenu, handleBirdCallback } = require('./commands/birdMenu');
+const birdMenu = require('./commands/birdMenu');
+const registerBirdMenu = birdMenu.registerBirdMenu;
 
 // ── Menu ──────────────────────────────────────────────────────────────────────
 const { registerMainMenu } = require('./menu/mainMenu');
@@ -84,9 +85,16 @@ function createBot(app) {
     return _deleteMessage(...args).catch(() => null);
   };
 
-  // Register menu callbacks (inline buttons) — handleBirdCallback pre-loaded at top level
-  logger.info('[bot] registerMainMenu called', { handleBirdCallbackType: typeof handleBirdCallback });
-  registerMainMenu(bot, handleBirdCallback);
+  // Register menu callbacks (inline buttons)
+  // Use dynamic resolution of handleBirdCallback to avoid stale undefined from circular require.
+  registerMainMenu(bot, (botInstance, query) => {
+    const cb = (birdMenu && birdMenu.handleBirdCallback) || null;
+    if (typeof cb !== 'function') {
+      logger.error('[bot] dynamic birdMenu.handleBirdCallback is not available', { type: typeof cb });
+      return;
+    }
+    return cb(botInstance, query);
+  });
 
   // Register all command handlers
   registerStart(bot);
