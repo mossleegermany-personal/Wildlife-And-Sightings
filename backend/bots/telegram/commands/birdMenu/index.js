@@ -80,14 +80,22 @@ function registerBirdMenu(bot, addSightingSessions) {
   // WITHOUT triggering the catch — only `await` or `throw` do.
   // The outer .catch() handles those missed rejections.
   bot.on('callback_query', (query) => {
+    // Synchronous log — confirms this listener fires regardless of async behaviour
+    logger.info('[birdMenu] callback_query listener fired', { cbData: query?.data });
     (async () => {
     try {
-    logger.info('[birdMenu] callback_query received', { cbData: query?.data });
     const cbData  = query.data || '';
-    const chatId  = query.message.chat.id;
+    const chatId  = query.message?.chat?.id;
     const user    = query.from;
-    const chat    = query.message.chat;
+    const chat    = query.message?.chat;
     const context = { user, chat };
+
+    if (!chatId) {
+      logger.warn('[birdMenu] callback_query missing message/chat', { cbData, query: JSON.stringify(query).slice(0, 200) });
+      return;
+    }
+
+    logger.info('[birdMenu] callback_query received', { cbData, chatId });
 
     // ── Category navigation ───────────────────────────────────────────────
     if (cbData === 'bird_sightings') {
@@ -96,28 +104,35 @@ function registerBirdMenu(bot, addSightingSessions) {
       clearSession(chatId);
       // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      return bot.sendMessage(chatId, '*🐦 eBird Sightings*\n\nChoose a search type:', {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: '🔍 Sightings', callback_data: 'ebird_sightings' },
-              { text: '⭐ Notable',   callback_data: 'bird_notable'    },
+      logger.info('[birdMenu] bird_sightings: sending eBird submenu', { chatId });
+      try {
+        await bot.sendMessage(chatId, '*🐦 eBird Sightings*\n\nChoose a search type:', {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '🔍 Sightings', callback_data: 'ebird_sightings' },
+                { text: '⭐ Notable',   callback_data: 'bird_notable'    },
+              ],
+              [
+                { text: '📍 Nearby',   callback_data: 'bird_nearby'     },
+                { text: '🦆 Species',  callback_data: 'bird_species'    },
+              ],
+              // [
+              //   { text: '🔔 Live Updates', callback_data: 'bird_live_updates' },
+              // ],
+              [
+                { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
+                { text: '✅ Done',    callback_data: 'done'            },
+              ],
             ],
-            [
-              { text: '📍 Nearby',   callback_data: 'bird_nearby'     },
-              { text: '🦆 Species',  callback_data: 'bird_species'    },
-            ],
-            // [
-            //   { text: '🔔 Live Updates', callback_data: 'bird_live_updates' },
-            // ],
-            [
-              { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
-              { text: '✅ Done',    callback_data: 'done'            },
-            ],
-          ],
-        },
-      });
+          },
+        });
+        logger.info('[birdMenu] bird_sightings: eBird submenu sent OK', { chatId });
+      } catch (sendErr) {
+        logger.error('[birdMenu] bird_sightings: sendMessage failed', { chatId, error: sendErr.message, code: sendErr.code });
+      }
+      return;
     }
     if (cbData === 'ebird_sightings') {
       bot.answerCallbackQuery(query.id);
