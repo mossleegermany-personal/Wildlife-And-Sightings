@@ -101,55 +101,80 @@ function handleBirdCallback(bot, query) {
 
     logger.info('[birdMenu] callback_query received', { cbData, chatId });
 
-    // ── Category navigation ───────────────────────────────────────────────
-    if (cbData === 'bird_sightings') {
+    const actionHandlers = {
+      bird_sightings: async () => {
+        bot.answerCallbackQuery(query.id);
+        getIdentify().clearPending?.(user?.id);
+        clearSession(chatId);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        return handleSightings(bot, chatId, context);
+      },
+      bird_notable: async () => {
+        bot.answerCallbackQuery(query.id);
+        getIdentify().clearPending?.(user?.id);
+        clearSession(chatId);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        return handleNotable(bot, chatId, context);
+      },
+      bird_nearby: async () => {
+        bot.answerCallbackQuery(query.id);
+        getIdentify().clearPending?.(user?.id);
+        clearSession(chatId);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        return handleNearby(bot, chatId);
+      },
+      bird_hotspot: async () => {
+        bot.answerCallbackQuery(query.id);
+        getIdentify().clearPending?.(user?.id);
+        clearSession(chatId);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        return handleHotspots(bot, chatId);
+      },
+      bird_species: async () => {
+        bot.answerCallbackQuery(query.id);
+        getIdentify().clearPending?.(user?.id);
+        clearSession(chatId);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        return handleSpecies(bot, chatId);
+      },
+      bird_back_sightings: async () => {
+        bot.answerCallbackQuery(query.id);
+        clearSession(chatId);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        return sendSightingsCategoryMenu(bot, chatId);
+      },
+      bird_back_main: async () => {
+        bot.answerCallbackQuery(query.id);
+        clearSession(chatId);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        return sendSightingsCategoryMenu(bot, chatId);
+      },
+      bird_logs: async () => {
+        bot.answerCallbackQuery(query.id);
+        clearSession(chatId);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        return handleMyLogs(bot, chatId, user);
+      },
+      done: async () => {
+        bot.answerCallbackQuery(query.id);
+        clearSession(chatId);
+        userStates.delete(chatId);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        return bot.sendMessage(chatId, '✅ Session ended. Use /start to begin again.');
+      },
+    };
+
+    if (actionHandlers[cbData]) {
+      return actionHandlers[cbData]();
+    }
+
+    // Backwards compatibility for old payload (if present)
+    if (cbData === 'ebird_sightings') {
       bot.answerCallbackQuery(query.id);
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       return handleSightings(bot, chatId, context);
-    }
-    if (cbData === 'bird_notable') {
-      bot.answerCallbackQuery(query.id);
-      try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      getIdentify().clearPending?.(user?.id);
-      clearSession(chatId);
-      return handleNotable(bot, chatId, context);
-    }
-    if (cbData === 'bird_nearby') {
-      bot.answerCallbackQuery(query.id);
-      try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      getIdentify().clearPending?.(user?.id);
-      clearSession(chatId);
-      return handleNearby(bot, chatId);
-    }
-    if (cbData === 'bird_hotspot') {
-      bot.answerCallbackQuery(query.id);
-      try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      getIdentify().clearPending?.(user?.id);
-      clearSession(chatId);
-      return handleHotspots(bot, chatId);
-    }
-    if (cbData === 'bird_species') {
-      bot.answerCallbackQuery(query.id);
-      try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      getIdentify().clearPending?.(user?.id);
-      clearSession(chatId);
-      return handleSpecies(bot, chatId);
-    }
-
-    if (cbData === 'bird_back_sightings' || cbData === 'bird_back_main') {
-      bot.answerCallbackQuery(query.id);
-      try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      clearSession(chatId);
-      return sendSightingsCategoryMenu(bot, chatId);
-    }
-    if (cbData === 'bird_logs') {
-      bot.answerCallbackQuery(query.id);
-      try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      clearSession(chatId);
-      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
-      return handleMyLogs(bot, chatId, user);
     }
 
     // ── My Logs pagination ────────────────────────────────────────────────
