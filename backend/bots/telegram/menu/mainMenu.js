@@ -254,16 +254,35 @@ const CALLBACKS = {
 
 function registerMainMenu(bot, handleBirdCallback) {
   logger.info('[mainMenu] registerMainMenu called', { handleBirdCallbackType: typeof handleBirdCallback });
+
+  let resolvedBirdCallback = handleBirdCallback;
+  if (typeof resolvedBirdCallback !== 'function') {
+    try {
+      const fallback = require('../commands/birdMenu').handleBirdCallback;
+      if (typeof fallback === 'function') {
+        resolvedBirdCallback = fallback;
+        logger.info('[mainMenu] loaded birdMenu.handleBirdCallback lazily as fallback');
+      }
+    } catch (err) {
+      logger.warn('[mainMenu] lazy load of birdMenu.handleBirdCallback failed', { error: err.message });
+    }
+  }
+
   bot.on('callback_query', (query) => {
     logger.info('[mainMenu] callback_query event emitted', { cbData: query?.data });
     const handler = CALLBACKS[query.data];
     if (handler) { handler(bot, query); return; }
-    if (typeof handleBirdCallback !== 'function') {
-      logger.error('[mainMenu] handleBirdCallback is not a function', { handleBirdCallbackType: typeof handleBirdCallback, cbData: query?.data });
+
+    if (typeof resolvedBirdCallback !== 'function') {
+      logger.error('[mainMenu] handleBirdCallback is not a function', {
+        handleBirdCallbackType: typeof resolvedBirdCallback,
+        cbData: query?.data,
+      });
       bot.answerCallbackQuery(query.id, { text: 'Button not available right now' }).catch(() => {});
       return;
     }
-    handleBirdCallback(bot, query);
+
+    resolvedBirdCallback(bot, query);
   });
 }
 

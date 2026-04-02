@@ -15,6 +15,7 @@ const logger = require('../../../src/utils/logger');
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const DEFAULT_MODELS = [
+  { name: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro Preview' },
   { name: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' },
   { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
 ];
@@ -342,9 +343,16 @@ If you cannot find what the user described, return: {"identified": false, "reaso
           break;
         }
 
-        if ((isQuota || isTimeout) && attempt < 3) {
-          const wait = isTimeout ? 5000 : attempt * 20000;
-          logger.warn(`${isTimeout ? 'Timeout' : 'Quota'} — retrying in ${wait / 1000}s`);
+        if (isQuota) {
+          // Quota errors are unrecoverable until the quota resets.
+          logger.error('[geminiService] quota exhausted during identification', { model: modelInfo.name, error: error.message });
+          lastError = error;
+          break; // stop retries and go next model / final fail
+        }
+
+        if (isTimeout && attempt < 3) {
+          const wait = 5000;
+          logger.warn(`Timeout — retrying ${modelInfo.displayName} in ${wait / 1000}s`);
           await new Promise((r) => setTimeout(r, wait));
           continue;
         }

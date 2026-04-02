@@ -72,6 +72,18 @@ function createBot(app) {
   const _answerCbq = bot.answerCallbackQuery.bind(bot);
   bot.answerCallbackQuery = (...args) => _answerCbq(...args).catch(() => {});
 
+  // Bot message deletion is not needed by default; make it opt-in via env.
+  // This ensures all code paths calling bot.deleteMessage are safe and no messages are removed.
+  const _deleteMessage = bot.deleteMessage.bind(bot);
+  const allowDeleteMsg = String(process.env.DELETE_BOT_MESSAGES || 'false').toLowerCase() === 'true';
+  bot.deleteMessage = (...args) => {
+    if (!allowDeleteMsg) {
+      logger.debug('[bot] deleteMessage skipped by DELETE_BOT_MESSAGES=false', { args });
+      return Promise.resolve();
+    }
+    return _deleteMessage(...args).catch(() => null);
+  };
+
   // Register menu callbacks (inline buttons) — handleBirdCallback pre-loaded at top level
   logger.info('[bot] registerMainMenu called', { handleBirdCallbackType: typeof handleBirdCallback });
   registerMainMenu(bot, handleBirdCallback);
