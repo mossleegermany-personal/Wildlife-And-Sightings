@@ -87,8 +87,8 @@ function createBot(app) {
   };
 
   // Register menu callbacks (inline buttons)
-  // Main menu dynamically resolves birdMenu.handleBirdCallback on each invocation.
-  registerMainMenu(bot);
+  // birdMenu is fully loaded above so handleBirdCallback is guaranteed defined here.
+  registerMainMenu(bot, birdMenu.handleBirdCallback);
 
   // Handle raw location share globally.
   bot.on('message', (msg) => {
