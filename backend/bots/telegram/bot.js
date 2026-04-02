@@ -90,19 +90,15 @@ function createBot(app) {
   // Main menu dynamically resolves birdMenu.handleBirdCallback on each invocation.
   registerMainMenu(bot);
 
-  // Handle raw location share globally, bypassing birdMenu message listener in case of circular load issues
+  // Handle raw location share globally.
   bot.on('message', (msg) => {
     if (!msg || !msg.location) return;
     const chatId = msg.chat?.id;
     if (!chatId) return;
 
-    if (typeof birdFlows.handleLocationMsg === 'function') {
-      birdFlows.handleLocationMsg(bot, chatId, msg, { user: msg.from, chat: msg.chat }).catch((err) => {
-        logger.error('[bot] birdFlows.handleLocationMsg failed', { error: err.message, stack: err.stack });
-      });
-    } else {
-      logger.warn('[bot] birdFlows.handleLocationMsg not available for location share');
-    }
+    birdFlows.handleLocationMsg(bot, chatId, msg, { user: msg.from, chat: msg.chat }).catch((err) => {
+      logger.error('[bot] birdFlows.handleLocationMsg failed', { error: err.message, stack: err.stack });
+    });
   });
 
   // Register all command handlers

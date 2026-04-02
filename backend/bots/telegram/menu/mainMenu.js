@@ -18,6 +18,7 @@ const logger = require('../../../src/utils/logger');
 const { startAddSightingSession }  = require('../commands/addSighting');
 const birdFlows = require('../commands/birdMenu/flows');
 const { sendSightingsCategoryMenu, sendEbirdSubmenu } = require('../commands/birdMenu/ui');
+const { handleBirdCallback } = require('../commands/birdMenu');
 
 
 // chatId -> { sn, sessionId } — in-memory dedup guard for Animal Identification sessions
@@ -253,23 +254,8 @@ function registerMainMenu(bot) {
       return;
     }
 
-    let callbackFn = null;
-    try {
-      callbackFn = require('../commands/birdMenu').handleBirdCallback;
-    } catch (err) {
-      logger.error('[mainMenu] failed to load birdMenu.handleBirdCallback', { error: err.message });
-    }
-
-    if (typeof callbackFn !== 'function') {
-      logger.error('[mainMenu] handleBirdCallback is not a function', {
-        handleBirdCallbackType: typeof callbackFn,
-        cbData: query?.data,
-      });
-      bot.answerCallbackQuery(query.id, { text: 'Button not available right now' }).catch(() => {});
-      return;
-    }
-
-    callbackFn(bot, query);
+    // Direct bird menu callback path (no dynamic fallback required for current app structure)
+    handleBirdCallback(bot, query);
   });
 }
 
