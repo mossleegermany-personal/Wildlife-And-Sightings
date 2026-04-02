@@ -244,36 +244,26 @@ const CALLBACKS = {
 function registerMainMenu(bot, handleBirdCallback) {
   logger.info('[mainMenu] registerMainMenu called', { handleBirdCallbackType: typeof handleBirdCallback });
 
-  let resolvedBirdCallback = handleBirdCallback;
+  const resolvedBirdCallback = typeof handleBirdCallback === 'function'
+    ? handleBirdCallback
+    : (require('../commands/birdMenu').handleBirdCallback || null);
+
   if (typeof resolvedBirdCallback !== 'function') {
-    try {
-      const fallback = require('../commands/birdMenu').handleBirdCallback;
-      if (typeof fallback === 'function') {
-        resolvedBirdCallback = fallback;
-        logger.info('[mainMenu] loaded birdMenu.handleBirdCallback lazily as fallback');
-      }
-    } catch (err) {
-      logger.warn('[mainMenu] lazy load of birdMenu.handleBirdCallback failed', { error: err.message });
-    }
+    logger.error('[mainMenu] no birdMenu.handleBirdCallback available during init');
   }
 
   bot.on('callback_query', (query) => {
     logger.info('[mainMenu] callback_query event emitted', { cbData: query?.data });
-    const handler = CALLBACKS[query.data];
-    if (handler) { handler(bot, query); return; }
 
-    let callbackFn = resolvedBirdCallback;
-    if (typeof callbackFn !== 'function') {
-      try {
-        const fallbackFn = require('../commands/birdMenu').handleBirdCallback;
-        if (typeof fallbackFn === 'function') {
-          callbackFn = fallbackFn;
-          logger.info('[mainMenu] found fallback birdMenu.handleBirdCallback at invocation');
-        }
-      } catch (err) {
-        logger.warn('[mainMenu] unable to load fallback birdMenu.handleBirdCallback at invocation', { error: err.message });
-      }
+    const handler = CALLBACKS[query.data];
+    if (handler) {
+      handler(bot, query);
+      return;
     }
+
+    const callbackFn = typeof resolvedBirdCallback === 'function'
+      ? resolvedBirdCallback
+      : require('../commands/birdMenu').handleBirdCallback;
 
     if (typeof callbackFn !== 'function') {
       logger.error('[mainMenu] handleBirdCallback is not a function', {

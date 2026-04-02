@@ -87,15 +87,8 @@ function createBot(app) {
   };
 
   // Register menu callbacks (inline buttons)
-  // Use dynamic resolution of handleBirdCallback to avoid stale undefined from circular require.
-  registerMainMenu(bot, (botInstance, query) => {
-    const cb = (birdMenu && birdMenu.handleBirdCallback) || null;
-    if (typeof cb !== 'function') {
-      logger.error('[bot] dynamic birdMenu.handleBirdCallback is not available', { type: typeof cb });
-      return;
-    }
-    return cb(botInstance, query);
-  });
+  // Use direct handleBirdCallback mapping from birdMenu module.
+  registerMainMenu(bot, birdMenu.handleBirdCallback);
 
   // Handle raw location share globally, bypassing birdMenu message listener in case of circular load issues
   bot.on('message', (msg) => {

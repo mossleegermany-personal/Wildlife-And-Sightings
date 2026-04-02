@@ -37,11 +37,11 @@ const EBIRD_SUBMENU = {
 };
 
 async function sendSightingsCategoryMenu(bot, chatId) {
-  return bot.sendMessage(chatId, '*Bird Sightings*\n\nChoose a category to explore:', SIGHTINGS_CATEGORY_MENU);
+  return bot.sendMessage(chatId, '🐦 Bird Sightings\n\nChoose a category to explore:', SIGHTINGS_CATEGORY_MENU);
 }
 
 async function sendEbirdSubmenu(bot, chatId) {
-  return bot.sendMessage(bot, '*Bird Sightings*\n\nChoose a search type:', EBIRD_SUBMENU);
+  return bot.sendMessage(chatId, '🐦 Bird Sightings\n\nChoose a search type:', EBIRD_SUBMENU);
 }
 
 module.exports = {
