@@ -189,6 +189,37 @@ const CALLBACKS = {
     );
   },
 
+  async bird_sightings(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    const chatId = query.message?.chat?.id;
+    logger.info('[mainMenu] bird_sightings: sending eBird submenu', { chatId });
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+    try {
+      await bot.sendMessage(chatId, '*🐦 eBird Sightings*\n\nChoose a search type:', {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🔍 Sightings', callback_data: 'ebird_sightings' },
+              { text: '⭐ Notable',   callback_data: 'bird_notable'    },
+            ],
+            [
+              { text: '📍 Nearby',   callback_data: 'bird_nearby'     },
+              { text: '🦆 Species',  callback_data: 'bird_species'    },
+            ],
+            [
+              { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
+              { text: '✅ Done',    callback_data: 'done'            },
+            ],
+          ],
+        },
+      });
+      logger.info('[mainMenu] bird_sightings: eBird submenu sent OK', { chatId });
+    } catch (err) {
+      logger.error('[mainMenu] bird_sightings: sendMessage failed', { chatId, error: err.message });
+    }
+  },
+
   menu_addsighting(bot, query) {
     bot.answerCallbackQuery(query.id);
     startAddSightingSession(bot, query.message.chat.id, query.from, query.message.chat);

@@ -34,7 +34,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: backend
+          path: |
+            backend
+            !backend/node_modules
 
   deploy:
     runs-on: ubuntu-latest
@@ -100,7 +102,7 @@ jobs:
                 GOOGLE_SHEETS_PRIVATE_KEY="$GOOGLE_SHEETS_PRIVATE_KEY" \
                 GOOGLE_SHEETS_SPREADSHEET_ID="$GOOGLE_SHEETS_SPREADSHEET_ID" \
                 GOOGLE_DRIVE_FOLDER_ID="$GOOGLE_DRIVE_FOLDER_ID" \
-                SCM_DO_BUILD_DURING_DEPLOYMENT="false"
+                SCM_DO_BUILD_DURING_DEPLOYMENT="true"
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
