@@ -241,8 +241,8 @@ const CALLBACKS = {
 
 // ── Register callback_query listener ─────────────────────────────────────────
 
-function registerMainMenu(bot, handleBirdCallback) {
-  logger.info('[mainMenu] registerMainMenu called', { handleBirdCallbackType: typeof handleBirdCallback });
+function registerMainMenu(bot) {
+  logger.info('[mainMenu] registerMainMenu called');
 
   bot.on('callback_query', (query) => {
     logger.info('[mainMenu] callback_query event emitted', { cbData: query?.data });
@@ -253,9 +253,12 @@ function registerMainMenu(bot, handleBirdCallback) {
       return;
     }
 
-    const callbackFn = typeof handleBirdCallback === 'function'
-      ? handleBirdCallback
-      : (require('../commands/birdMenu').handleBirdCallback || null);
+    let callbackFn = null;
+    try {
+      callbackFn = require('../commands/birdMenu').handleBirdCallback;
+    } catch (err) {
+      logger.error('[mainMenu] failed to load birdMenu.handleBirdCallback', { error: err.message });
+    }
 
     if (typeof callbackFn !== 'function') {
       logger.error('[mainMenu] handleBirdCallback is not a function', {
