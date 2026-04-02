@@ -102,7 +102,7 @@ function handleBirdCallback(bot, query) {
     logger.info('[birdMenu] callback_query received', { cbData, chatId });
 
     // ── Category navigation ───────────────────────────────────────────────
-    if (cbData === 'bird_sightings' || cbData === 'ebird_sightings') {
+    if (cbData === 'bird_sightings') {
       bot.answerCallbackQuery(query.id);
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);

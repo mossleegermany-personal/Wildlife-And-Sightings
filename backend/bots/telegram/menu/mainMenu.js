@@ -171,22 +171,7 @@ const CALLBACKS = {
     return sendSightingsCategoryMenu(bot, chatId);
   },
 
-  async bird_sightings(bot, query) {
-    bot.answerCallbackQuery(query.id);
-    const chatId = query.message?.chat?.id;
-    logger.info('[mainMenu] bird_sightings: sending eBird submenu', { chatId });
-    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return sendEbirdSubmenu(bot, chatId);
-  },
-
-  // Support unified callback in submenu and main menu
-  async bird_sightings(bot, query) {
-    bot.answerCallbackQuery(query.id);
-    const chatId = query.message?.chat?.id;
-    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return birdFlows.handleSightings(bot, chatId, { user: query.from, chat: query.message?.chat });
-  },
-
+  // bird_sightings callback is handled in birdMenu.handleBirdCallback for universal behavior
   async bird_notable(bot, query) {
     bot.answerCallbackQuery(query.id);
     const chatId = query.message?.chat?.id;
@@ -215,19 +200,7 @@ const CALLBACKS = {
     return birdFlows.handleMyLogs(bot, chatId, query.from);
   },
 
-  async bird_back_main(bot, query) {
-    bot.answerCallbackQuery(query.id);
-    const chatId = query.message?.chat?.id;
-    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return sendSightingsCategoryMenu(bot, chatId);
-  },
 
-  async bird_back_sightings(bot, query) {
-    bot.answerCallbackQuery(query.id);
-    const chatId = query.message?.chat?.id;
-    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return sendEbirdSubmenu(bot, chatId);
-  },
 
   async done(bot, query) {
     bot.answerCallbackQuery(query.id);
