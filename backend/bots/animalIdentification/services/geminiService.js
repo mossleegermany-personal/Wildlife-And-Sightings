@@ -15,7 +15,6 @@ const logger = require('../../../src/utils/logger');
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const DEFAULT_MODELS = [
-  // Keep preview model first when user prefers latest capabilities.
   { name: 'gemini-3.1-pro-preview', displayName: 'Gemini 3.1 Pro Preview' },
   { name: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' },
   { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
