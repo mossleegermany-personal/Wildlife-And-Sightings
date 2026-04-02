@@ -14,6 +14,7 @@ const logger = require('../../src/utils/logger');
 
 // ── Bird menu — must load before mainMenu to avoid circular require ────────────
 const birdMenu = require('./commands/birdMenu');
+const birdFlows = require('./commands/birdMenu/flows');
 const registerBirdMenu = birdMenu.registerBirdMenu;
 
 // ── Menu ──────────────────────────────────────────────────────────────────────
@@ -94,6 +95,21 @@ function createBot(app) {
       return;
     }
     return cb(botInstance, query);
+  });
+
+  // Handle raw location share globally, bypassing birdMenu message listener in case of circular load issues
+  bot.on('message', (msg) => {
+    if (!msg || !msg.location) return;
+    const chatId = msg.chat?.id;
+    if (!chatId) return;
+
+    if (typeof birdFlows.handleLocationMsg === 'function') {
+      birdFlows.handleLocationMsg(bot, chatId, msg, { user: msg.from, chat: msg.chat }).catch((err) => {
+        logger.error('[bot] birdFlows.handleLocationMsg failed', { error: err.message, stack: err.stack });
+      });
+    } else {
+      logger.warn('[bot] birdFlows.handleLocationMsg not available for location share');
+    }
   });
 
   // Register all command handlers
