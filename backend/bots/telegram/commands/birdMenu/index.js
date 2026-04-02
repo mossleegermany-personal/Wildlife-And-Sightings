@@ -73,6 +73,7 @@ function clearSession(chatId) {
 
 function registerBirdMenu(bot, addSightingSessions) {
   addSightingSessions = addSightingSessions ?? null;
+  logger.info('[birdMenu] registerBirdMenu called — registering callback_query listener');
 
   // ── Callback query handler ────────────────────────────────────────────────
   // NOTE: `(async () => { ... })().catch(...)` is intentional.

@@ -80,7 +80,11 @@ function createBot(app) {
   registerSightings(bot);
   registerAddSighting(bot);
   // Pass addSighting's sessions map so birdMenu never intercepts those messages
-  registerBirdMenu(bot, registerAddSighting.sessions);
+  try {
+    registerBirdMenu(bot, registerAddSighting.sessions);
+  } catch (err) {
+    logger.error('[bot] registerBirdMenu threw during setup — bird_sightings handler NOT registered', { error: err.message, stack: err.stack });
+  }
   registerHotspots(bot);
   registerSpecies(bot);
   registerIdentify(bot);
