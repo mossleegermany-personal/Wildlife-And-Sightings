@@ -252,14 +252,14 @@ const CALLBACKS = {
 
 // ── Register callback_query listener ─────────────────────────────────────────
 
-function registerMainMenu(bot) {
+function registerMainMenu(bot, handleBirdCallback) {
   bot.on('callback_query', (query) => {
     logger.info('[mainMenu] callback_query event emitted', { cbData: query?.data });
     const handler = CALLBACKS[query.data];
     if (handler) { handler(bot, query); return; }
-    // Lazy-require to avoid circular dependency (mainMenu ↔ birdMenu ↔ identify ↔ mainMenu)
-    const { handleBirdCallback } = require('../commands/birdMenu');
-    handleBirdCallback(bot, query);
+    if (typeof handleBirdCallback === 'function') {
+      handleBirdCallback(bot, query);
+    }
   });
 }
 

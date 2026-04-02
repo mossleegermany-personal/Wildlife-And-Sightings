@@ -21,7 +21,6 @@ const registerHelp     = require('./commands/help');
 const registerAbout    = require('./commands/about');
 const registerSightings    = require('./commands/sightings');
 const registerAddSighting  = require('./commands/addSighting');
-const { registerBirdMenu } = require('./commands/birdMenu');
 const registerHotspots     = require('./commands/hotspots');
 const registerSpecies      = require('./commands/species');
 const registerIdentify     = require('./commands/identify');
@@ -70,8 +69,10 @@ function createBot(app) {
   const _answerCbq = bot.answerCallbackQuery.bind(bot);
   bot.answerCallbackQuery = (...args) => _answerCbq(...args).catch(() => {});
 
-  // Register menu callbacks (inline buttons)
-  registerMainMenu(bot);
+  const { registerBirdMenu, handleBirdCallback } = require('./commands/birdMenu');
+
+  // Register menu callbacks (inline buttons) — pass handleBirdCallback to avoid circular require
+  registerMainMenu(bot, handleBirdCallback);
 
   // Register all command handlers
   registerStart(bot);
