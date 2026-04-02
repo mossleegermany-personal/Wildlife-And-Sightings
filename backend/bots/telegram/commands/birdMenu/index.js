@@ -520,27 +520,40 @@ function registerBirdMenu(bot, addSightingSessions) {
   // ── Message handler ───────────────────────────────────────────────────────
   bot.on('message', (msg) => {
     (async () => {
-    try {
-    const chatId = msg.chat.id;
+      try {
+        const chatId = msg.chat.id;
 
-    // addSighting has priority
-    if (addSightingSessions && addSightingSessions.has(chatId)) return;
+        // addSighting has priority
+        if (addSightingSessions && addSightingSessions.has(chatId)) return;
 
-    // Handle GPS location share (Nearby flow)
-    if (msg.location) {
-      return handleLocationMsg(bot, chatId, msg, { user: msg.from, chat: msg.chat });
-    }
+        // Handle direct GPS location share (Nearby flow)
+        if (msg.location) {
+          logger.info('[birdMenu] message location received', { chatId });
+          return handleLocationMsg(bot, chatId, msg, { user: msg.from, chat: msg.chat });
+        }
 
-    const state = userStates.get(chatId);
-    if (!state) return;
+        const state = userStates.get(chatId);
+        const text = (msg.text || '').trim();
+
+        if (!text) return;
+
+        if (!state) {
+          // Universal fallback: single-phrase location search even without a state
+          logger.info('[birdMenu] universal fallback text location', { chatId, text });
+          userStates.set(chatId, { action: 'awaiting_region_sightings', context: { user: msg.from, chat: msg.chat } });
+          return handlePlaceSearch(bot, chatId, text, 'sightings', { user: msg.from, chat: msg.chat });
+        }
+
+        // Continue with existing logic when state exists
+        if (state.action === 'awaiting_region_sightings' || state.action === 'awaiting_region_notable' || state.action === 'awaiting_species_location') {
+          logger.info('[birdMenu] state-driven text location input', { chatId, state: state.action, text });
+          // fall through to route based on action
+        }
 
     // Skip commands
     if (msg.text && msg.text.startsWith('/')) return;
 
-    const text = (msg.text || '').trim();
-    if (!text) return;
-
-    const { action } = state;
+    const action = state.action;
     const context = state.context || { user: msg.from, chat: msg.chat };
 
     // ── Sightings region input ──────────────────────────────────────────
@@ -557,6 +570,14 @@ function registerBirdMenu(bot, addSightingSessions) {
       } else {
         await handlePlaceSearch(bot, chatId, text, 'sightings', context);
       }
+      return;
+    }
+
+    // Universal text location fallback if state is not explicitly set
+    if (!action && text) {
+      logger.info('[birdMenu] universal fallback text input for location', { chatId, text });
+      userStates.set(chatId, { action: 'awaiting_region_sightings', context });
+      await handlePlaceSearch(bot, chatId, text, 'sightings', context);
       return;
     }
 
