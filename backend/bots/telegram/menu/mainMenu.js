@@ -16,6 +16,7 @@ const identifyPromptMessages = new Map();
 const sheetsService = require('../../../database/googleSheets/services/googleSheetsService');
 const logger = require('../../../src/utils/logger');
 const { startAddSightingSession }  = require('../commands/addSighting');
+const birdFlows = require('../commands/birdMenu/flows');
 
 // Defined inline — no dependency on any birdMenu file at load time
 const SIGHTINGS_CATEGORY_MENU = {
@@ -218,6 +219,80 @@ const CALLBACKS = {
     } catch (err) {
       logger.error('[mainMenu] bird_sightings: sendMessage failed', { chatId, error: err.message });
     }
+  },
+
+  async ebird_sightings(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    const chatId = query.message?.chat?.id;
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+    return birdFlows.handleSightings(bot, chatId, { user: query.from, chat: query.message?.chat });
+  },
+
+  async bird_notable(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    const chatId = query.message?.chat?.id;
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+    return birdFlows.handleNotable(bot, chatId, { user: query.from, chat: query.message?.chat });
+  },
+
+  async bird_nearby(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    const chatId = query.message?.chat?.id;
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+    return birdFlows.handleNearby(bot, chatId);
+  },
+
+  async bird_species(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    const chatId = query.message?.chat?.id;
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+    return birdFlows.handleSpecies(bot, chatId);
+  },
+
+  async bird_logs(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    const chatId = query.message?.chat?.id;
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+    return birdFlows.handleMyLogs(bot, chatId, query.from);
+  },
+
+  async bird_back_main(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    const chatId = query.message?.chat?.id;
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+    return bot.sendMessage(chatId, '🐦 eBird Sightings\n\nChoose a category to explore:', SIGHTINGS_CATEGORY_MENU);
+  },
+
+  async bird_back_sightings(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    const chatId = query.message?.chat?.id;
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+    return bot.sendMessage(chatId, '*🐦 eBird Sightings*\n\nChoose a search type:', {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '🔍 Sightings', callback_data: 'ebird_sightings' },
+            { text: '⭐ Notable',   callback_data: 'bird_notable'    },
+          ],
+          [
+            { text: '📍 Nearby',   callback_data: 'bird_nearby'     },
+            { text: '🦆 Species',  callback_data: 'bird_species'    },
+          ],
+          [
+            { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
+            { text: '✅ Done',    callback_data: 'done'            },
+          ],
+        ],
+      },
+    });
+  },
+
+  async done(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    const chatId = query.message?.chat?.id;
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+    return bot.sendMessage(chatId, '✅ Done! Use the main menu again when ready.', MAIN_MENU);
   },
 
   menu_addsighting(bot, query) {

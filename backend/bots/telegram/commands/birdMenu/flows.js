@@ -1006,14 +1006,26 @@ async function handleRegions(bot, chatId) {
   );
 }
 
-module.exports = {
-  showDateSelection, showSpeciesDateSelection,
-  handleDateCallback, parseUserDate, handleCustomDateInput,
-  handleSightings, handlePlaceSearch, showHotspotSelection, fetchAndSendSightings, resendLastPrompt,
-  handleNotable, fetchAndSendNotable,
-  handleMyLogs,
-  handleNearby, handleLocationMsg, showNearbyDateSelection, fetchNearbySightings,
-  handleHotspots, searchAndShowHotspots,
-  handleSpecies, searchSpeciesGlobally, fetchSpeciesInLocation,
+module.exports.showDateSelection = showDateSelection;
+module.exports.showSpeciesDateSelection = showSpeciesDateSelection;
+module.exports.handleDateCallback = handleDateCallback;
+module.exports.parseUserDate = parseUserDate;
+module.exports.handleCustomDateInput = handleCustomDateInput;
+module.exports.handleSightings = handleSightings;
+module.exports.handlePlaceSearch = handlePlaceSearch;
+module.exports.showHotspotSelection = showHotspotSelection;
+module.exports.fetchAndSendSightings = fetchAndSendSightings;
+module.exports.resendLastPrompt = resendLastPrompt;
+module.exports.handleNotable = handleNotable;
+module.exports.fetchAndSendNotable = fetchAndSendNotable;
+module.exports.handleMyLogs = handleMyLogs;
+module.exports.handleNearby = handleNearby;
+module.exports.handleLocationMsg = handleLocationMsg;
+module.exports.showNearbyDateSelection = showNearbyDateSelection;
+module.exports.fetchNearbySightings = fetchNearbySightings;
+module.exports.handleHotspots = handleHotspots;
+module.exports.searchAndShowHotspots = searchAndShowHotspots;
+module.exports.handleSpecies = handleSpecies;
+module.exports.searchSpeciesGlobally = searchSpeciesGlobally;
+module.exports.fetchSpeciesInLocation = fetchSpeciesInLocation;
 
-};
