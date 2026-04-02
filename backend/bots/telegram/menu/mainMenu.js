@@ -16,7 +16,6 @@ const identifyPromptMessages = new Map();
 const sheetsService = require('../../../database/googleSheets/services/googleSheetsService');
 const logger = require('../../../src/utils/logger');
 const { startAddSightingSession }  = require('../commands/addSighting');
-const { handleBirdCallback }       = require('../commands/birdMenu');
 
 // Defined inline — no dependency on any birdMenu file at load time
 const SIGHTINGS_CATEGORY_MENU = {
@@ -258,7 +257,8 @@ function registerMainMenu(bot) {
     logger.info('[mainMenu] callback_query event emitted', { cbData: query?.data });
     const handler = CALLBACKS[query.data];
     if (handler) { handler(bot, query); return; }
-    // Delegate all unrecognised callbacks to birdMenu
+    // Lazy-require to avoid circular dependency (mainMenu ↔ birdMenu ↔ identify ↔ mainMenu)
+    const { handleBirdCallback } = require('../commands/birdMenu');
     handleBirdCallback(bot, query);
   });
 }
