@@ -253,13 +253,12 @@ const CALLBACKS = {
 // ── Register callback_query listener ─────────────────────────────────────────
 
 function registerMainMenu(bot, handleBirdCallback) {
+  logger.info('[mainMenu] registerMainMenu called', { handleBirdCallbackType: typeof handleBirdCallback });
   bot.on('callback_query', (query) => {
     logger.info('[mainMenu] callback_query event emitted', { cbData: query?.data });
     const handler = CALLBACKS[query.data];
     if (handler) { handler(bot, query); return; }
-    if (typeof handleBirdCallback === 'function') {
-      handleBirdCallback(bot, query);
-    }
+    handleBirdCallback(bot, query);
   });
 }
 
