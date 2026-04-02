@@ -328,7 +328,7 @@ function handleBirdCallback(bot, query) {
       clearSession(chatId);
       // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-      return bot.sendMessage(chatId, '*🐦 eBird Sightings*\n\nChoose a search type:', {
+      return bot.sendMessage(chatId, '*Bird Sightings*\n\nChoose a search type:', {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
