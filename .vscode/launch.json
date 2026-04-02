@@ -4,12 +4,28 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "Backend (debug)",
+      "name": "Backend (polling — local dev)",
       "cwd": "${workspaceFolder}/backend",
       "program": "${workspaceFolder}/backend/bin/www",
       "envFile": "${workspaceFolder}/backend/.env",
       "env": {
-        "LOG_LEVEL": "debug"
+        "LOG_LEVEL": "debug",
+        "TELEGRAM_FORCE_POLLING": "true"
+      },
+      "console": "integratedTerminal",
+      "outputCapture": "std",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Backend (webhook — requires tunnel URL in .env)",
+      "cwd": "${workspaceFolder}/backend",
+      "program": "${workspaceFolder}/backend/bin/www",
+      "envFile": "${workspaceFolder}/backend/.env",
+      "env": {
+        "LOG_LEVEL": "debug",
+        "TELEGRAM_FORCE_WEBHOOK": "true"
       },
       "console": "integratedTerminal",
       "outputCapture": "std",

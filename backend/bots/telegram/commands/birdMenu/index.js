@@ -15,14 +15,15 @@
 const logger = require('../../../../src/utils/logger');
 const { ebird, sheetsService } = require('./services');
 const { ITEMS_PER_PAGE, SIGHTINGS_CATEGORY_MENU } = require('./constants');
-const { ensureActiveBirdSession, endBirdSession } = require('./session');
+// const { ensureActiveBirdSession, endBirdSession } = require('./session');
 const { esc }                = require('./helpers');
 const { toRegionCode }       = require('./location');
 const { resolveRegionCode }  = require('./location');
 const { startLiveUpdate, stopLiveUpdate, getLiveUpdate } = require('./liveUpdates');
 
 const {
-  userStates, observationsCache, lastPrompts, birdSessionMap,
+  userStates, observationsCache, lastPrompts,
+  // birdSessionMap, // session disabled
 } = require('./state');
 
 const {
@@ -93,7 +94,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       bot.answerCallbackQuery(query.id);
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
-      ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
+      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       return bot.sendMessage(chatId, '*🐦 eBird Sightings*\n\nChoose a search type:', {
         parse_mode: 'Markdown',
@@ -123,7 +124,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
-      ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
+      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       return handleSightings(bot, chatId, context);
     }
     if (cbData === 'bird_notable') {
@@ -131,7 +132,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
-      ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
+      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       return handleNotable(bot, chatId, context);
     }
     if (cbData === 'bird_nearby') {
@@ -139,7 +140,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
-      ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
+      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       return handleNearby(bot, chatId);
     }
     if (cbData === 'bird_hotspot') {
@@ -147,7 +148,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
-      ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
+      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       return handleHotspots(bot, chatId);
     }
     if (cbData === 'bird_species') {
@@ -155,7 +156,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       getIdentify().clearPending?.(user?.id);
       clearSession(chatId);
-      ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
+      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       return handleSpecies(bot, chatId);
     }
 
@@ -175,7 +176,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       bot.answerCallbackQuery(query.id);
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       clearSession(chatId);
-      ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
+      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       return handleMyLogs(bot, chatId, user);
     }
 
@@ -353,7 +354,7 @@ function registerBirdMenu(bot, addSightingSessions) {
     if (cbData === 'new_search') {
       bot.answerCallbackQuery(query.id);
       clearSession(chatId);
-      ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
+      // ensureActiveBirdSession(chat, user).catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       return bot.sendMessage(chatId, '*🐦 eBird Sightings*\n\nChoose a search type:', {
         parse_mode: 'Markdown',
@@ -480,7 +481,7 @@ function registerBirdMenu(bot, addSightingSessions) {
       bot.answerCallbackQuery(query.id);
       userStates.delete(chatId);
       clearSession(chatId);
-      endBirdSession(chatId);
+      // endBirdSession(chatId);
       try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
       await bot.sendMessage(chatId, '✅ Session ended. Use /start to begin again.');
       return;
@@ -717,4 +718,4 @@ function registerBirdMenu(bot, addSightingSessions) {
   });
 }
 
-module.exports = { registerBirdMenu, SIGHTINGS_CATEGORY_MENU, clearSession, ensureActiveBirdSession };
+module.exports = { registerBirdMenu, SIGHTINGS_CATEGORY_MENU, clearSession };

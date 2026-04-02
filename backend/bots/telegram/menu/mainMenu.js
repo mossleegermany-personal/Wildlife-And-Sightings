@@ -181,7 +181,7 @@ const CALLBACKS = {
     bot.answerCallbackQuery(query.id);
     const chat = query.message.chat;
     const user = query.from;
-    require('../commands/birdMenu/session').ensureActiveBirdSession(chat, user).catch(() => {});
+    // require('../commands/birdMenu/session').ensureActiveBirdSession(chat, user).catch(() => {});
     bot.sendMessage(
       chat.id,
       `<b>🐦 Bird Sightings</b>\n\nChoose a category to explore:`,

@@ -112,11 +112,31 @@ function createBot(app) {
         if (webhookSecretToken) {
           const headerToken = req.get('x-telegram-bot-api-secret-token') || '';
           if (headerToken !== webhookSecretToken) {
+            logger.warn('[webhook] Rejected update — invalid secret token');
             return res.status(401).json({ error: 'Invalid webhook secret token' });
           }
         }
 
-        bot.processUpdate(req.body);
+        const update = req.body;
+        const updateType = update.message ? 'message'
+          : update.callback_query ? 'callback_query'
+          : update.edited_message ? 'edited_message'
+          : update.channel_post ? 'channel_post'
+          : 'unknown';
+        const cbData = update.callback_query?.data;
+        const text   = update.message?.text;
+        logger.info('[webhook] Update received', {
+          updateId: update.update_id,
+          type: updateType,
+          ...(cbData && { cbData }),
+          ...(text   && { text }),
+        });
+
+        try {
+          bot.processUpdate(update);
+        } catch (err) {
+          logger.error('[webhook] processUpdate threw', { error: err.message, stack: err.stack });
+        }
         return res.sendStatus(200);
       });
 
