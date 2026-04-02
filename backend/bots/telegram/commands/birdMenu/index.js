@@ -46,7 +46,14 @@ const {
 // Lazy-load identify to break the mainMenu → birdMenu → identify → mainMenu cycle
 let _identify = null;
 function getIdentify() {
-  if (!_identify) _identify = require('../identify');
+  if (!_identify) {
+    try {
+      _identify = require('../identify');
+    } catch (err) {
+      logger.warn('[birdMenu] Failed to load identify module', { error: err.message });
+      return { clearPending: () => {} };
+    }
+  }
   return _identify;
 }
 
