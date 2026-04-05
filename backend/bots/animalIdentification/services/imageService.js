@@ -429,19 +429,19 @@ async function buildResultPanelCanvas(data, W, H) {
   const loc = renderSafeText(data.ebirdSightingsLocation || data.country || '', '');
   const sightingsCount = typeof data.ebirdSightingsCount === 'number' && data.ebirdSightingsCount >= 0
     ? String(data.ebirdSightingsCount)
-    : 'N/A';
-  const sightingsLine1 = `No. of Sightings${loc ? ` (${loc})` : ''}:`;
-  const sightingsLine2 = sightingsCount;
-
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = '#facc15';
-  ctx.font = "bold 22px 'Wildlife Sans', Arial, sans-serif";
-  ctx.fillText(sightingsLine1, 16, H - 48);
-  const labelWidth = ctx.measureText(sightingsLine1).width;
-  ctx.font = "bold 28px 'Wildlife Sans', Arial, sans-serif";
-  ctx.textAlign = 'center';
-  ctx.fillText(sightingsLine2, 16 + labelWidth / 2, H - 18);
+    : null;
+  if (sightingsCount !== null) {
+    const sightingsLine1 = `No. of Sightings${loc ? ` (${loc})` : ''}:`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#facc15';
+    ctx.font = "bold 22px 'Wildlife Sans', Arial, sans-serif";
+    ctx.fillText(sightingsLine1, 16, H - 48);
+    const labelWidth = ctx.measureText(sightingsLine1).width;
+    ctx.font = "bold 28px 'Wildlife Sans', Arial, sans-serif";
+    ctx.textAlign = 'center';
+    ctx.fillText(sightingsCount, 16 + labelWidth / 2, H - 18);
+  }
 
   return canvas.toBuffer('image/png');
 }
@@ -568,10 +568,12 @@ function buildResultPanel(data, W, H) {
   const loc = renderSafeText(data.ebirdSightingsLocation || data.country || '', '');
   const sightingsVal = typeof data.ebirdSightingsCount === 'number' && data.ebirdSightingsCount >= 0
     ? data.ebirdSightingsCount
-    : 'N/A';
-  ebirdSightingsFooter =
-    `<text x="16" y="${H - 48}" font-size="26" fill="#facc15" text-anchor="start" font-family="${FONT_FAMILY}" font-weight="bold">No. of Sightings${loc ? ` (${escSvg(loc)})` : ''}:</text>` +
-    `<text x="16" y="${H - 14}" font-size="32" fill="#facc15" text-anchor="start" font-family="${FONT_FAMILY}" font-weight="bold">${sightingsVal}</text>`;
+    : null;
+  if (sightingsVal !== null) {
+    ebirdSightingsFooter =
+      `<text x="16" y="${H - 48}" font-size="26" fill="#facc15" text-anchor="start" font-family="${FONT_FAMILY}" font-weight="bold">No. of Sightings${loc ? ` (${escSvg(loc)})` : ''}:</text>` +
+      `<text x="16" y="${H - 14}" font-size="32" fill="#facc15" text-anchor="start" font-family="${FONT_FAMILY}" font-weight="bold">${sightingsVal}</text>`;
+  }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
     <rect width="${W}" height="${H}" fill="#000000"/>

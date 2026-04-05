@@ -104,6 +104,36 @@ function buildAlertMsg(obs, type, regionCode) {
   return msg;
 }
 
+function buildListAlertMsg(newObs, type, regionCode) {
+  const typeLabel = type === 'notable' ? '⭐ Notable Sightings Alert'
+    : type === 'species' ? '🦆 Species Sightings Alert'
+    : '🐦 New Sightings Alert';
+
+  let msg = `🔔 <b>${typeLabel}</b>\n<b>${newObs.length} new sightings</b>\n\n`;
+
+  for (const obs of newObs) {
+    const cnt = obs.howMany ? `${obs.howMany} bird${obs.howMany > 1 ? 's' : ''}` : 'Present';
+    const locLabel = escHtml(obs.locName || 'Unknown');
+    const locUrl   = obs.locId ? `https://ebird.org/hotspot/${obs.locId}` : null;
+    const locText  = locUrl ? `<a href="${locUrl}">${locLabel}</a>` : `<b>${locLabel}</b>`;
+    const [datePart, timePart] = (obs.obsDt || '').split(' ');
+    const fmtD   = datePart ? datePart.split('-').reverse().join('/') : '';
+    const tzAbbr = regionCode ? ` ${getTzAbbr(getTimezoneForRegion(regionCode))}` : '';
+    const fmtT   = timePart ? `${timePart}${tzAbbr} hrs` : null;
+    const checklistUrl = obs.subId ? `https://ebird.org/checklist/${obs.subId}` : null;
+
+    msg += `• <b>${escHtml(obs.comName || 'Unknown')}</b>`;
+    if (obs.sciName) msg += ` <i>(${escHtml(obs.sciName)})</i>`;
+    msg += `\n`;
+    msg += `   📍 ${locText} · 🔍 ${cnt}\n`;
+    if (fmtD) msg += `   📅 ${fmtD}${fmtT ? ` · 🕒 ${fmtT}` : ''}\n`;
+    if (checklistUrl) msg += `   🔗 <a href="${checklistUrl}">View Checklist</a>\n`;
+    msg += '\n';
+  }
+
+  return msg.trimEnd();
+}
+
 // ── Polling ───────────────────────────────────────────────────────────────────
 
 async function pollAndNotify(bot, chatId) {
@@ -117,14 +147,27 @@ async function pollAndNotify(bot, chatId) {
       !sub.seenSubIds.has(o.subId) &&
       (o.obsDt || '').startsWith(todayStr)
     );
-    for (const o of newObs) {
-      sub.seenSubIds.add(o.subId);
-      await bot.sendMessage(chatId, buildAlertMsg(o, sub.type, sub.regionCode), {
+    for (const o of newObs) sub.seenSubIds.add(o.subId);
+
+    if (newObs.length === 0) return;
+
+    const BUTTONS = {
+      inline_keyboard: [[{ text: '🔕 Stop', callback_data: 'live_stop' }, { text: '🔄 Change', callback_data: 'live_setup' }]],
+    };
+
+    if (newObs.length === 1) {
+      // Single new sighting — full detail card
+      await bot.sendMessage(chatId, buildAlertMsg(newObs[0], sub.type, sub.regionCode), {
         parse_mode: 'HTML',
         disable_web_page_preview: true,
-        reply_markup: {
-          inline_keyboard: [[{ text: '🔕 Stop', callback_data: 'live_stop' }, { text: '🔄 Change', callback_data: 'live_setup' }]],
-        },
+        reply_markup: BUTTONS,
+      });
+    } else {
+      // Multiple new sightings — compact grouped list
+      await bot.sendMessage(chatId, buildListAlertMsg(newObs, sub.type, sub.regionCode), {
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        reply_markup: BUTTONS,
       });
     }
   } catch (err) {
