@@ -889,8 +889,13 @@ module.exports = function registerIdentify(bot) {
 
     // Close — delete the sightings message
     if (data === 'ebird_close') {
-      bot.answerCallbackQuery(query.id);
-      await bot.deleteMessage(query.message.chat.id, query.message.message_id).catch(() => {});
+      const chatId = query.message?.chat?.id;
+      const msgId  = query.message?.message_id;
+      logger.info('[identify] ebird_close received', { chatId, msgId });
+      await bot.answerCallbackQuery(query.id).catch(err => logger.warn('[identify] ebird_close answerCbQuery failed', { error: err?.message }));
+      if (chatId && msgId) {
+        await bot.deleteMessage(chatId, msgId).catch(err => logger.warn('[identify] ebird_close deleteMessage failed', { chatId, msgId, error: err?.message }));
+      }
       return;
     }
 
