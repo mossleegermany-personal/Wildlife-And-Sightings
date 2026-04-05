@@ -59,14 +59,6 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_34EB0DCAA25F428E8082F1F49C7D6015 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_FFAA30EC4E4046B1ADCA226C8578B41C }}
 
-      - name: 'Stop Azure Web App (clear runtime module cache)'
-        uses: azure/CLI@v2
-        with:
-          inlineScript: |
-            az webapp stop \
-              --name wildlife-and-sightings \
-              --resource-group "$(az webapp list --query "[?name=='wildlife-and-sightings'].resourceGroup | [0]" -o tsv)"
-
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
@@ -123,12 +115,18 @@ jobs:
             az webapp config set \
               --resource-group "$AZURE_WEBAPP_RESOURCE_GROUP" \
               --name "$AZURE_WEBAPP_NAME" \
-              --startup-file "cd /home/site/wwwroot && if [ ! -d node_modules ] || [ ! -d node_modules/dotenv ]; then npm ci --omit=dev; fi && node bin/www"
+              --startup-file "cd /home/site/wwwroot && if [ ! -d node_modules ] || [ ! -d node_modules/dotenv ]; then npm ci --omit=dev; fi && node bin/www" \
+              --always-on true
 
-      - name: 'Restart Azure Web App to clear runtime cache'
+      - name: 'Ensure Azure Web App is running after deploy'
+        if: always()
         uses: azure/CLI@v2
         with:
           inlineScript: |
+            RG=$(az webapp list --query "[?name=='wildlife-and-sightings'].resourceGroup | [0]" -o tsv)
+            az webapp start \
+              --name wildlife-and-sightings \
+              --resource-group "$RG"
             az webapp restart \
               --name wildlife-and-sightings \
-              --resource-group "$(az webapp list --query "[?name=='wildlife-and-sightings'].resourceGroup | [0]" -o tsv)"
+              --resource-group "$RG"

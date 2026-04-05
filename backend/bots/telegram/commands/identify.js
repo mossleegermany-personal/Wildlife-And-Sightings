@@ -393,6 +393,7 @@ module.exports = function registerIdentify(bot) {
   bot.on('photo', async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
+    let loadingMsg = null;
 
     const fromSessionEnded = sessionEnded.has(userId);
     if (fromSessionEnded) {
@@ -421,6 +422,10 @@ module.exports = function registerIdentify(bot) {
 
       const inputFileId = largest?.file_id;
       if (!inputFileId) throw new Error('Invalid Telegram photo payload');
+
+      if (hasActiveSession && !fromSessionEnded) {
+        loadingMsg = await bot.sendMessage(chatId, '⏳ Loading photo…').catch(() => null);
+      }
 
       const { buffer } = await downloadTelegramFile(bot, inputFileId);
       const imageCapturedAt = extractImageCapturedAt(buffer);
@@ -475,6 +480,7 @@ module.exports = function registerIdentify(bot) {
           } catch { /* non-blocking */ }
         }
 
+        await bot.deleteMessage(chatId, loadingMsg?.message_id).catch(() => {});
         await requestLocationAndQueue(
           bot,
           chatId,
@@ -493,6 +499,7 @@ module.exports = function registerIdentify(bot) {
         );
       }
     } catch (err) {
+      await bot.deleteMessage(chatId, loadingMsg?.message_id).catch(() => {});
       bot.sendMessage(chatId, `❌ Could not process photo: ${escHtml(err.message)}`);
     }
   });
@@ -501,6 +508,7 @@ module.exports = function registerIdentify(bot) {
   bot.on('document', async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
+    let loadingMsg = null;
     const fromSessionEnded = sessionEnded.has(userId);
     if (fromSessionEnded) {
       sessionEnded.delete(userId);
@@ -525,6 +533,9 @@ module.exports = function registerIdentify(bot) {
       const hasActiveSession = hasIdentifyPromptMessage(chatId);
 
       const inputFileId = doc.file_id;
+      if (hasActiveSession && !fromSessionEnded) {
+        loadingMsg = await bot.sendMessage(chatId, '⏳ Loading image…').catch(() => null);
+      }
       const { buffer, filePath } = await downloadTelegramFile(bot, inputFileId);
       const imageCapturedAt = extractImageCapturedAt(buffer);
       const mimeType = (doc.mime_type || detectMimeTypeFromPath(filePath)).split(';')[0] || 'image/jpeg';
@@ -575,6 +586,7 @@ module.exports = function registerIdentify(bot) {
           } catch { /* non-blocking */ }
         }
 
+        await bot.deleteMessage(chatId, loadingMsg?.message_id).catch(() => {});
         await requestLocationAndQueue(
           bot,
           chatId,
@@ -593,6 +605,7 @@ module.exports = function registerIdentify(bot) {
         );
       }
     } catch (err) {
+      await bot.deleteMessage(chatId, loadingMsg?.message_id).catch(() => {});
       bot.sendMessage(chatId, `❌ Could not process image file: ${escHtml(err.message)}`);
     }
   });
@@ -1032,7 +1045,7 @@ module.exports.hasPending = (userId) => userId != null && pending.has(userId);
 
 async function runIdentification(bot, chatId, buffer, mimeType, options) {
   // remove_keyboard cleans up the ReplyKeyboard shown during location prompt
-  const statusMsg = await bot.sendMessage(chatId, '🔍 Analysing image…', {
+  const statusMsg = await bot.sendMessage(chatId, '⏳ Analysing image…', {
     reply_markup: { remove_keyboard: true },
   });
 
