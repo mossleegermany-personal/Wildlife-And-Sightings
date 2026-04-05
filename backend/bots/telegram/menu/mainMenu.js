@@ -16,7 +16,6 @@ const identifyPromptMessages = new Map();
 const sheetsService = require('../../../database/googleSheets/services/googleSheetsService');
 const logger = require('../../../src/utils/logger');
 const { startAddSightingSession }  = require('../commands/addSighting');
-const birdFlows = require('../commands/birdMenu/flows');
 const { sendSightingsCategoryMenu, sendEbirdSubmenu } = require('../commands/birdMenu/ui');
 
 
@@ -171,43 +170,8 @@ const CALLBACKS = {
     return sendSightingsCategoryMenu(bot, chatId);
   },
 
-  // bird_sightings callback is handled in birdMenu.handleBirdCallback for universal behavior
-  async bird_notable(bot, query) {
-    bot.answerCallbackQuery(query.id);
-    const chatId = query.message?.chat?.id;
-    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return birdFlows.handleNotable(bot, chatId, { user: query.from, chat: query.message?.chat });
-  },
-
-  async bird_nearby(bot, query) {
-    bot.answerCallbackQuery(query.id);
-    const chatId = query.message?.chat?.id;
-    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return birdFlows.handleNearby(bot, chatId);
-  },
-
-  async bird_species(bot, query) {
-    bot.answerCallbackQuery(query.id);
-    const chatId = query.message?.chat?.id;
-    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return birdFlows.handleSpecies(bot, chatId);
-  },
-
-  async bird_logs(bot, query) {
-    bot.answerCallbackQuery(query.id);
-    const chatId = query.message?.chat?.id;
-    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return birdFlows.handleMyLogs(bot, chatId, query.from);
-  },
-
-
-
-  async done(bot, query) {
-    bot.answerCallbackQuery(query.id);
-    const chatId = query.message?.chat?.id;
-    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-    return bot.sendMessage(chatId, '✅ Done! Use the main menu again when ready.', { reply_markup: MAIN_MENU.reply_markup });
-  },
+  // bird_* and done callbacks are handled exclusively by birdMenu.handleBirdCallback
+  // (registered in bot.js) so they are NOT listed here.
 
   menu_addsighting(bot, query) {
     bot.answerCallbackQuery(query.id);
@@ -240,34 +204,22 @@ const CALLBACKS = {
 };
 
 // ── Register callback_query listener ─────────────────────────────────────────
-
-// Lazy-load birdMenu to break any circular-require chain.
-// By the time any callback fires, all modules are fully initialised.
-let _birdMenu = null;
-function getBirdMenu() {
-  if (!_birdMenu) {
-    _birdMenu = require('../commands/birdMenu');
-  }
-  return _birdMenu;
-}
+// Handles ONLY the main-menu own callbacks (menu_identify, menu_sightings, etc.).
+// Bird-specific callbacks are handled by birdMenu.handleBirdCallback which is
+// registered as a separate listener in bot.js, avoiding any require() issues.
 
 function registerMainMenu(bot) {
   logger.info('[mainMenu] registerMainMenu called');
 
   bot.on('callback_query', (query) => {
-    logger.info('[mainMenu] callback_query event emitted', { cbData: query?.data });
-
     const handler = CALLBACKS[query.data];
-    if (handler) {
-      // Wrap in Promise.resolve so async handlers don't produce unhandled rejections
-      // (Azure Node.js crashes the process on unhandled rejections by default).
-      Promise.resolve(handler(bot, query)).catch((err) => {
-        logger.error('[mainMenu] callback handler threw', { cbData: query?.data, error: err.message, stack: err.stack });
-      });
-      return;
-    }
+    if (!handler) return; // not a mainMenu callback — birdMenu listener in bot.js handles it
 
-    getBirdMenu().handleBirdCallback(bot, query);
+    // Wrap in Promise.resolve so async handlers don't produce unhandled rejections
+    // (Azure Node.js crashes the process on unhandled rejections by default).
+    Promise.resolve(handler(bot, query)).catch((err) => {
+      logger.error('[mainMenu] callback handler threw', { cbData: query?.data, error: err.message, stack: err.stack });
+    });
   });
 }
 

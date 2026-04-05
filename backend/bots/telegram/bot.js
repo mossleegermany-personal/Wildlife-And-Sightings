@@ -85,9 +85,17 @@ function createBot(app) {
     return _deleteMessage(...args).catch(() => null);
   };
 
-  // Register menu callbacks (inline buttons).
-  // handleBirdCallback is resolved lazily inside mainMenu via getBirdMenu().
+  // Register menu callbacks (inline buttons) — handles menu_identify, menu_sightings, etc.
   registerMainMenu(bot);
+
+  // Register bird callback_query handler here, where birdMenu is guaranteed fully loaded.
+  // This replaces the old delegation from mainMenu (which failed due to circular-require on Azure).
+  bot.on('callback_query', (query) => {
+    if (!query?.data) return;
+    Promise.resolve(birdMenu.handleBirdCallback(bot, query)).catch((err) => {
+      logger.error('[bot] handleBirdCallback error', { cbData: query?.data, error: err.message, stack: err.stack });
+    });
+  });
 
   // NOTE: raw location shares are handled inside registerBirdMenu's message listener.
   // A separate global handler here would call handleLocationMsg twice (duplicate menus).
