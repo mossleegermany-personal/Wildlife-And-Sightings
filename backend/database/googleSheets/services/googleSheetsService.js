@@ -73,6 +73,31 @@ class GoogleSheetsService {
 
 
   /**
+   * Count how many Animal Identification rows exist for a given chatId on a given SGT date.
+   * Used for daily rate-limiting: private chats allow 15/day, groups allow 20/day.
+   *
+   * @param {number|string} chatId   - Telegram chat ID
+   * @param {string}        dateStr  - date in 'dd/mm/yyyy' format (SGT)
+   * @returns {Promise<number>}
+   */
+  async getDailyIdentificationCount(chatId, dateStr) {
+    const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    if (!id) return 0;
+    try {
+      // Read columns B (Chat Id) through K (Date) — B2:K is cols [0]=B … [9]=K
+      const rows = await this.getRows(id, 'Animal Identification!B2:K');
+      const chatIdStr = String(chatId);
+      return rows.filter(r => {
+        const rowChatId = String(r[0] || '').trim();
+        const rowDate   = String(r[9] || '').replace(/^'/, '').trim(); // strip leading ' prefix
+        return rowChatId === chatIdStr && rowDate === dateStr;
+      }).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
    * Read the next available serial number from the Animal Identification sheet.
    * @returns {Promise<number>}
    */
@@ -545,7 +570,7 @@ class GoogleSheetsService {
 
   /**
    * Append a new session row to the "Sessions" sheet with Status = "Active".
-   * Columns: S/N | Sub-bot | Session Id | Sender | Display Name | Chat Id | Chat Type | Channel Id | Channel Name | Start Date | Start Time | End Date | End Time | Status
+   * Columns: S/N | Sub-bot | Session Id | Sender | Display Name | Chat Id | Channel Id | Channel Name | Chat Type | Start Date | Start Time | End Date | End Time | Status
    *
    * Channel Id and Channel Name are only populated for group/channel chats.
    *

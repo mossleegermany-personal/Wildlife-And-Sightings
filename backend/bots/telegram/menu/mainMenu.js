@@ -233,9 +233,16 @@ const CALLBACKS = {
 function registerMainMenu(bot) {
   logger.info('[mainMenu] registerMainMenu called');
 
+  // Dedup guard: ignore a callback query id that was already processed within the last 10 s
+  const _processed = new Set();
+
   bot.on('callback_query', (query) => {
     const handler = CALLBACKS[query.data];
     if (!handler) return; // not a mainMenu callback — birdMenu listener in bot.js handles it
+
+    if (_processed.has(query.id)) return;
+    _processed.add(query.id);
+    setTimeout(() => _processed.delete(query.id), 10_000);
 
     // Wrap in Promise.resolve so async handlers don't produce unhandled rejections
     // (Azure Node.js crashes the process on unhandled rejections by default).

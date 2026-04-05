@@ -439,13 +439,15 @@ async function buildResultPanelCanvas(data, W, H) {
   const sightingsLine1 = `No. of Sightings${loc ? ` (${loc})` : ''}:`;
   const sightingsLine2 = sightingsCount;
 
-  ctx.textAlign = 'center';
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#facc15';
   ctx.font = "bold 22px 'Wildlife Sans', Arial, sans-serif";
-  ctx.fillText(sightingsLine1, W / 2, H - 52);
+  ctx.fillText(sightingsLine1, 16, H - 48);
+  const labelWidth = ctx.measureText(sightingsLine1).width;
   ctx.font = "bold 28px 'Wildlife Sans', Arial, sans-serif";
-  ctx.fillText(sightingsLine2, W / 2, H - 22);
+  ctx.textAlign = 'center';
+  ctx.fillText(sightingsLine2, 16 + labelWidth / 2, H - 18);
 
   return canvas.toBuffer('image/png');
 }
@@ -570,11 +572,12 @@ function buildResultPanel(data, W, H) {
   // Footer: eBird sightings count for this species at the user location
   let ebirdSightingsFooter = '';
   const loc = renderSafeText(data.ebirdSightingsLocation || data.country || '', '');
-  if (typeof data.ebirdSightingsCount === 'number' && data.ebirdSightingsCount >= 0) {
-    ebirdSightingsFooter = `<text x="${W / 2}" y="${H - 42}" font-size="32" fill="#facc15" text-anchor="middle" font-family="${FONT_FAMILY}" font-weight="bold">No. of Sightings${loc ? ` (${escSvg(loc)})` : ''}: ${data.ebirdSightingsCount}</text>`;
-  } else {
-    ebirdSightingsFooter = `<text x="${W / 2}" y="${H - 42}" font-size="32" fill="#facc15" text-anchor="middle" font-family="${FONT_FAMILY}" font-weight="bold">No. of Sightings${loc ? ` (${escSvg(loc)})` : ''}: N/A</text>`;
-  }
+  const sightingsVal = typeof data.ebirdSightingsCount === 'number' && data.ebirdSightingsCount >= 0
+    ? data.ebirdSightingsCount
+    : 'N/A';
+  ebirdSightingsFooter =
+    `<text x="16" y="${H - 48}" font-size="26" fill="#facc15" text-anchor="start" font-family="${FONT_FAMILY}" font-weight="bold">No. of Sightings${loc ? ` (${escSvg(loc)})` : ''}:</text>` +
+    `<text x="16" y="${H - 14}" font-size="32" fill="#facc15" text-anchor="start" font-family="${FONT_FAMILY}" font-weight="bold">${sightingsVal}</text>`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
     <rect width="${W}" height="${H}" fill="#000000"/>

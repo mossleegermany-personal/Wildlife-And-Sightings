@@ -1,55 +1,40 @@
-// ── Telegram Rate Limiting (per user/group, daily reset) ─────────────
-const fs = require('fs');
-const path = require('path');
-const RATE_LIMIT_PATH = path.join(__dirname, 'rateLimitStore.json');
-const USER_LIMIT = 14;
-const GROUP_LIMIT = 30;
+// ── Daily identification limits (per chatId, resets at 00:00 SGT) ─────────────
+// Private chats: 15 identifications/day   Group chats: 20 identifications/day
+// In-memory cache is seeded from Google Sheets on the first request of the day
+// so limits survive bot restarts within the same calendar day.
+const PRIVATE_DAILY_LIMIT = 15;
+const GROUP_DAILY_LIMIT   = 20;
 
-function loadRateLimitStore() {
+// chatId -> { date: 'dd/mm/yyyy', count: number }
+const dailyIdentifyCount = new Map();
+
+function getTodaySGT() {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore' }).formatToParts(new Date());
+  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  return `${map.day}/${map.month}/${map.year}`;
+}
+
+async function getTodayCount(chatId) {
+  const today = getTodaySGT();
+  const cached = dailyIdentifyCount.get(chatId);
+  if (cached && cached.date === today) return cached.count;
+  // First access today — seed from sheets so restarts don't reset the counter
   try {
-    return JSON.parse(fs.readFileSync(RATE_LIMIT_PATH, 'utf8'));
+    const count = await sheetsService.getDailyIdentificationCount(chatId, today);
+    dailyIdentifyCount.set(chatId, { date: today, count });
+    return count;
   } catch {
-    return { users: {}, groups: {}, lastReset: '' };
+    return 0; // if sheets is unavailable, allow through (fail open)
   }
 }
 
-function saveRateLimitStore(store) {
-  fs.writeFileSync(RATE_LIMIT_PATH, JSON.stringify(store, null, 2));
+function incrementTodayCount(chatId) {
+  const today = getTodaySGT();
+  const cached = dailyIdentifyCount.get(chatId);
+  const count = (cached && cached.date === today ? cached.count : 0) + 1;
+  dailyIdentifyCount.set(chatId, { date: today, count });
 }
-
-function resetIfNeeded(store) {
-  const now = new Date();
-  const today = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore' }).format(now);
-  if (store.lastReset !== today) {
-    store.users = {};
-    store.groups = {};
-    store.lastReset = today;
-    saveRateLimitStore(store);
-  }
-}
-
-function checkAndIncrementRateLimit(userId, groupId) {
-  const store = loadRateLimitStore();
-  resetIfNeeded(store);
-  // User check
-  if (userId) {
-    store.users[userId] = (store.users[userId] || 0) + 1;
-    if (store.users[userId] > USER_LIMIT) {
-      saveRateLimitStore(store);
-      return { allowed: false, type: 'user', limit: USER_LIMIT };
-    }
-  }
-  // Group check
-  if (groupId) {
-    store.groups[groupId] = (store.groups[groupId] || 0) + 1;
-    if (store.groups[groupId] > GROUP_LIMIT) {
-      saveRateLimitStore(store);
-      return { allowed: false, type: 'group', limit: GROUP_LIMIT };
-    }
-  }
-  saveRateLimitStore(store);
-  return { allowed: true };
-}
+// ─────────────────────────────────────────────────────────────────────────────
 const ABUNDANCE_DEFINITIONS = {
   VC: 'Very common (VC) - found almost all the time in suitable locations',
   C:  'Common (C) - found most of the time in suitable locations',
@@ -400,13 +385,6 @@ module.exports = function registerIdentify(bot) {
   bot.on('photo', async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
-    const groupId = msg.chat?.type === 'group' || msg.chat?.type === 'supergroup' ? chatId : null;
-    // const rate = checkAndIncrementRateLimit(userId, groupId);
-    // if (!rate.allowed) {
-    //   const who = rate.type === 'user' ? 'user' : 'group';
-    //   const limit = rate.limit;
-    //   return bot.sendMessage(chatId, `❌ Daily ${who} identification limit reached (${limit} per day, resets at 00:00).`);
-    // }
 
     const fromSessionEnded = sessionEnded.has(userId);
     if (fromSessionEnded) {
@@ -462,6 +440,21 @@ module.exports = function registerIdentify(bot) {
           await bot.deleteMessage(chatId, promptMessageId).catch(() => {});
         }
 
+        // ── Daily limit check ──────────────────────────────────────────────
+        const isPrivateChat = (msg.chat?.type === 'private');
+        const dailyLimit    = isPrivateChat ? PRIVATE_DAILY_LIMIT : GROUP_DAILY_LIMIT;
+        const chatTypeLabel = isPrivateChat ? 'private chat' : 'group chat';
+        const todayCount    = await getTodayCount(chatId);
+        if (todayCount >= dailyLimit) {
+          await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+          return bot.sendMessage(chatId,
+            `❌ <b>Daily limit reached.</b>\n\nThis ${chatTypeLabel} has used all <b>${dailyLimit}</b> identifications for today.\n\nThe limit resets at <b>00:00 SGT</b>.`,
+            { parse_mode: 'HTML' }
+          );
+        }
+        incrementTodayCount(chatId);
+        // ──────────────────────────────────────────────────────────────────
+
         // Use the session already stored in memory when the button was clicked.
         // Calling ensureActiveSessionRecord here can race with the Sheets write from
         // menu_identify_new and create a duplicate session row.
@@ -500,13 +493,6 @@ module.exports = function registerIdentify(bot) {
   bot.on('document', async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
-    const groupId = msg.chat?.type === 'group' || msg.chat?.type === 'supergroup' ? chatId : null;
-    // const rate = checkAndIncrementRateLimit(userId, groupId);
-    // if (!rate.allowed) {
-    //   const who = rate.type === 'user' ? 'user' : 'group';
-    //   const limit = rate.limit;
-    //   return bot.sendMessage(chatId, `❌ Daily ${who} identification limit reached (${limit} per day, resets at 00:00).`);
-    // }
     const fromSessionEnded = sessionEnded.has(userId);
     if (fromSessionEnded) {
       sessionEnded.delete(userId);
@@ -555,6 +541,21 @@ module.exports = function registerIdentify(bot) {
         if (promptMessageId) {
           await bot.deleteMessage(chatId, promptMessageId).catch(() => {});
         }
+
+        // ── Daily limit check ──────────────────────────────────────────────
+        const isPrivateChatDoc = (msg.chat?.type === 'private');
+        const dailyLimitDoc    = isPrivateChatDoc ? PRIVATE_DAILY_LIMIT : GROUP_DAILY_LIMIT;
+        const chatTypeLabelDoc = isPrivateChatDoc ? 'private chat' : 'group chat';
+        const todayCountDoc    = await getTodayCount(chatId);
+        if (todayCountDoc >= dailyLimitDoc) {
+          await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+          return bot.sendMessage(chatId,
+            `❌ <b>Daily limit reached.</b>\n\nThis ${chatTypeLabelDoc} has used all <b>${dailyLimitDoc}</b> identifications for today.\n\nThe limit resets at <b>00:00 SGT</b>.`,
+            { parse_mode: 'HTML' }
+          );
+        }
+        incrementTodayCount(chatId);
+        // ──────────────────────────────────────────────────────────────────
 
         // Use the session already stored in memory when the button was clicked.
         const storedSession = getSessionStart(userId);
@@ -662,9 +663,13 @@ module.exports = function registerIdentify(bot) {
   });
 
   // ── Continue / Stop callbacks ──────────────────────────────────────────────
+  const _continueDedupSet = new Set();
   bot.on('callback_query', async (query) => {
     const { data } = query;
     if (data !== 'identify_continue' && data !== 'identify_stop') return;
+    if (_continueDedupSet.has(query.id)) return;
+    _continueDedupSet.add(query.id);
+    setTimeout(() => _continueDedupSet.delete(query.id), 10_000);
     const chatId = query.message.chat.id;
     bot.answerCallbackQuery(query.id);
     // Remove the Continue/Stop prompt
@@ -922,17 +927,19 @@ module.exports = function registerIdentify(bot) {
       return;
     }
 
-    const { text, keyboard } = await buildSightingsPage(cached.records, page, cached.location, cached.speciesName, cached.regionCode);
-
     // First page: send a new message. Subsequent pages: edit the existing one.
     if (page === 0 && query.message.photo) {
       // Button was on the photo — send a new text message for the list
+      const loadMsg = await bot.sendMessage(query.message.chat.id, '⏳ Loading sightings…').catch(() => null);
+      const { text, keyboard } = await buildSightingsPage(cached.records, page, cached.location, cached.speciesName, cached.regionCode);
+      await bot.deleteMessage(query.message.chat.id, loadMsg?.message_id).catch(() => {});
       await bot.sendMessage(query.message.chat.id, text, {
         parse_mode: 'HTML',
         disable_web_page_preview: true,
         reply_markup: keyboard,
       }).catch(() => {});
     } else {
+      const { text, keyboard } = await buildSightingsPage(cached.records, page, cached.location, cached.speciesName, cached.regionCode);
       await bot.editMessageText(text, {
         chat_id: query.message.chat.id,
         message_id: query.message.message_id,
@@ -1065,6 +1072,7 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
     // eBird species code (birds only)
     // Priority: GBIF accepted names first, then Gemini names.
     let ebirdSpeciesCode = null;
+    let _ebirdFoundViaSciName = false;
     if (isBird && (geminiSciName || geminiCommonName)) {
       const ebirdCandidates = [
         gbifResolvedSciName,
@@ -1079,18 +1087,19 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
         // eBird is the authoritative source — use its names for canvas + Wikipedia
         if (lookup.commonName) data.commonName = lookup.commonName;
         if (lookup.scientificName) data.scientificName = lookup.scientificName;
+        _ebirdFoundViaSciName = (candidateName === gbifResolvedSciName || candidateName === geminiSciName);
         break;
       }
       // Fetch eBird Identifiable Sub-specific Groups (ISSF) — done later after locationCoords is resolved
     }
 
     // Separate species code for sightings count: scientific-name candidates only.
+    // If the first loop already found the code via a scientific name, reuse it directly.
     let ebirdSpeciesCodeForSightings = ebirdSpeciesCode;
-    if (isBird) {
+    if (isBird && !_ebirdFoundViaSciName) {
       const scientificCandidates = [
         gbifResolvedSciName,
         geminiSciName,
-        data.scientificName,
       ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
       for (const candidateName of scientificCandidates) {
@@ -1213,23 +1222,23 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
       }
 
       // No. of Sightings records — same boundary scope
-      let speciesCountrySightingsCount = 0;
+      let speciesCountrySightingsCount = null;
       logger.info(`[identify] Sightings lookup: code=${ebirdSpeciesCodeForSightings}, subnational=${subnationalCode}, country=${resolvedCountryCode}`);
       if (ebirdSpeciesCodeForSightings) {
         if (subnationalCode) {
           const ebirdSub = await getNearbySpeciesObservations(
             ebirdSpeciesCodeForSightings,
             { subnationalCode }
-          ).catch(() => ({ found: false, count: 0, records: [] }));
-          speciesCountrySightingsCount = ebirdSub?.count || 0;
+          ).catch(() => ({ found: false, count: null, records: [] }));
+          speciesCountrySightingsCount = ebirdSub?.found ? (ebirdSub.count ?? null) : null;
           speciesRecentRecords = ebirdSub?.records || [];
           logger.info(`[identify] Subnational result: count=${speciesCountrySightingsCount}, records=${speciesRecentRecords.length}`);
         } else if (resolvedCountryCode) {
           const ebirdCountry = await getNearbySpeciesObservations(
             ebirdSpeciesCodeForSightings,
             { countryCode: resolvedCountryCode, isCountryOnly: true }
-          ).catch(() => ({ found: false, count: 0, records: [] }));
-          speciesCountrySightingsCount = ebirdCountry?.count || 0;
+          ).catch(() => ({ found: false, count: null, records: [] }));
+          speciesCountrySightingsCount = ebirdCountry?.found ? (ebirdCountry.count ?? null) : null;
           speciesRecentRecords = ebirdCountry?.records || [];
           logger.info(`[identify] Country result: count=${speciesCountrySightingsCount}, records=${speciesRecentRecords.length}`);
         }
@@ -1378,7 +1387,10 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
     }
 
     const canvas = await createResultCanvas(wikiImageUrl, buffer, data);
-    const caption = buildCaption(data, ebirdSpeciesCode, inatSlug);
+    const usedToday   = await getTodayCount(chatId);
+    const dailyLimit   = options.chatType === 'group' || options.chatType === 'supergroup' ? GROUP_DAILY_LIMIT : PRIVATE_DAILY_LIMIT;
+    const remaining    = Math.max(0, dailyLimit - usedToday);
+    const caption      = buildCaption(data, ebirdSpeciesCode, inatSlug, remaining, dailyLimit);
 
     await bot.deleteMessage(chatId, statusMsg.message_id).catch(() => {});
 
@@ -1452,7 +1464,7 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
 
 // ── Caption with clickable links (shown below the canvas photo) ───────────────
 
-function buildCaption(data, ebirdSpeciesCode, inatSlug) {
+function buildCaption(data, ebirdSpeciesCode, inatSlug, remaining, dailyLimit) {
   const sci = encodeURIComponent(data.scientificName || data.commonName || '');
   const isBird = (data.taxonomy && ['aves', 'bird'].some(k => (data.taxonomy.class || '').toLowerCase().includes(k)));
   const links = [];
@@ -1468,5 +1480,8 @@ function buildCaption(data, ebirdSpeciesCode, inatSlug) {
     links.push(`🔬 <a href="${inatUrl}">iNaturalist</a>`);
   }
   links.push(`📖 <a href="https://en.wikipedia.org/wiki/${sci}">Wikipedia</a>`);
-  return links.join('  ·  ');
+  const limitLine = (typeof remaining === 'number' && typeof dailyLimit === 'number')
+    ? `🔢 ${remaining}/${dailyLimit} identifications remaining today`
+    : null;
+  return [limitLine, links.join('  ·  ')].filter(Boolean).join('\n');
 }

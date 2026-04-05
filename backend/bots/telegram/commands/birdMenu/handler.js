@@ -90,6 +90,9 @@ function handleBirdCallback(bot, query) {
 
       logger.info('[birdMenu] callback_query received', { cbData, chatId });
 
+      // ebird_* callbacks belong exclusively to the identify module — don't intercept them
+      if (cbData.startsWith('ebird_')) return;
+
       const actionHandlers = {
         bird_sightings: async () => {
           bot.answerCallbackQuery(query.id);
@@ -569,6 +572,20 @@ function registerBirdMenu(bot, addSightingSessions) {
           logger.info('[birdMenu] universal fallback text location', { chatId, text });
           userStates.set(chatId, { action: 'awaiting_region_sightings', context: { user: msg.from, chat: msg.chat } });
           return handlePlaceSearch(bot, chatId, text, 'sightings', { user: msg.from, chat: msg.chat });
+        }
+
+        // Delete the user's own message and the bot prompt that preceded it so the chat stays clean.
+        // Only do this for state-driven text inputs (not jump-page or custom-date inputs).
+        const _deletableActions = new Set([
+          'awaiting_region_sightings', 'awaiting_region_notable', 'awaiting_region_hotspots',
+          'awaiting_species_name', 'awaiting_species_location',
+          'awaiting_live_location', 'awaiting_live_species',
+        ]);
+        if (_deletableActions.has(state.action)) {
+          bot.deleteMessage(chatId, msg.message_id).catch(() => {});
+          if (state.promptMsgId) {
+            bot.deleteMessage(chatId, state.promptMsgId).catch(() => {});
+          }
         }
 
         if (state.action === 'awaiting_region_sightings' || state.action === 'awaiting_region_notable' || state.action === 'awaiting_species_location') {

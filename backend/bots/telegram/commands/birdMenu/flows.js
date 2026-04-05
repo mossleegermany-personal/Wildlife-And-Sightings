@@ -13,8 +13,6 @@ const {
 } = require('./pagination');
 const { ebird, sheetsService } = require('./services');
 
-const ENABLE_GSHEET_LOGGING = process.env.ENABLE_GSHEET_LOGGING === 'true';
-
 // ── Date selection UI ─────────────────────────────────────────────────────────
 
 async function showDateSelection(bot, chatId, regionCode, displayName, type, opts) {
@@ -239,7 +237,7 @@ async function handleSightings(bot, chatId, context) {
     `• Region code: \`SG\`, \`US-NY\`, \`AU-WA\`` +
     getPopularLocations();
   lastPrompts.set(chatId, { message: msg, action: 'awaiting_region_sightings' });
-  await bot.sendMessage(chatId, msg, {
+  const sentSightings = await bot.sendMessage(chatId, msg, {
     parse_mode: 'Markdown',
     reply_markup: {
       inline_keyboard: [
@@ -247,6 +245,8 @@ async function handleSightings(bot, chatId, context) {
       ],
     },
   });
+  const prevSightings = userStates.get(chatId) || {};
+  userStates.set(chatId, { ...prevSightings, promptMsgId: sentSightings?.message_id });
 }
 
 async function handlePlaceSearch(bot, chatId, input, type, context, species) {
@@ -458,15 +458,14 @@ async function fetchAndSendSightings(bot, chatId, regionCode, originalInput, pag
   }
 
   const regionDisplay3 = isCoord ? displayName : regionCode;
-  // Google Sheets logging is temporarily disabled for local-like behavior.
-  // sheetsService.logBirdQuery({
-  //   user: context.user, chat: context.chat,
-  //   sessionId: birdSessionMap.get(chatId)?.sessionId || '',
-  //   command: 'Sightings', searchQuery: displayName, regionCode: regionDisplay3,
-  //   totalSightings: observations.length,
-  //   uniqueSpeciesCount: new Set(observations.map(o => o.speciesCode)).size,
-  //   speciesList: [...new Set(observations.map(o => o.comName))].slice(0, 10).join(', '),
-  // }).catch(err => logger.warn('Sheets log failed', { error: err.message }));
+  sheetsService.logBirdQuery({
+    user: context.user, chat: context.chat,
+    sessionId: birdSessionMap.get(chatId)?.sessionId || '',
+    command: 'Sightings', searchQuery: displayName, regionCode: regionDisplay3,
+    totalSightings: observations.length,
+    uniqueSpeciesCount: new Set(observations.map(o => o.speciesCode)).size,
+    speciesList: [...new Set(observations.map(o => o.comName))].slice(0, 10).join(', '),
+  }).catch(err => logger.warn('Sheets log failed', { error: err.message }));
 
   await sendPaginatedObservations(bot, chatId, observations, displayName, 'sightings', page, null, regionCode, dateLabel);
 }
@@ -485,7 +484,7 @@ async function handleNotable(bot, chatId, context) {
     `• Region code: \`SG\`, \`US-NY\`, \`AU-WA\`` +
     getPopularLocations();
   lastPrompts.set(chatId, { message: msg, action: 'awaiting_region_notable' });
-  await bot.sendMessage(chatId, msg, {
+  const sentNotable = await bot.sendMessage(chatId, msg, {
     parse_mode: 'Markdown',
     reply_markup: {
       inline_keyboard: [
@@ -493,6 +492,8 @@ async function handleNotable(bot, chatId, context) {
       ],
     },
   });
+  const prevNotable = userStates.get(chatId) || {};
+  userStates.set(chatId, { ...prevNotable, promptMsgId: sentNotable?.message_id });
 }
 
 async function fetchAndSendNotable(bot, chatId, regionCode, originalInput, page, dateFilter, isHotspot, context) {
@@ -558,8 +559,7 @@ async function fetchAndSendNotable(bot, chatId, regionCode, originalInput, page,
     return;
   }
 
-  if (ENABLE_GSHEET_LOGGING) {
-    sheetsService.logBirdQuery({
+  sheetsService.logBirdQuery({
       user: context.user, chat: context.chat,
       sessionId: birdSessionMap.get(chatId)?.sessionId || '',
       command: 'Notable Sightings', searchQuery: displayName, regionCode: isCoordN ? displayName : regionCode,
@@ -567,7 +567,6 @@ async function fetchAndSendNotable(bot, chatId, regionCode, originalInput, page,
       uniqueSpeciesCount: new Set(observations.map(o => o.speciesCode)).size,
       speciesList: [...new Set(observations.map(o => o.comName))].slice(0, 10).join(', '),
     }).catch(err => logger.warn('Sheets log failed', { error: err.message }));
-  }
 
   await sendPaginatedObservations(bot, chatId, observations, displayName, 'notable', page, null, regionCode, dateLabel);
 }
@@ -575,16 +574,14 @@ async function fetchAndSendNotable(bot, chatId, regionCode, originalInput, page,
 // ── My Logs flow ──────────────────────────────────────────────────────────────
 
 async function handleMyLogs(bot, chatId, user) {
-  if (!ENABLE_GSHEET_LOGGING) {
-    await bot.sendMessage(chatId,
-      `📓 *My Sightings Logs*\n\nThis feature is currently disabled while we run in local-like mode.\n\nUse ➕ Add My Sighting to save bird sightings locally in this session.`,
-      { parse_mode: 'Markdown' }
-    );
-    return;
-  }
-
   try {
-    const sightings = await sheetsService.getPersonalBirdSightings(user);
+    const loadMsg = await bot.sendMessage(chatId, '⏳ Loading your sightings logs…', { parse_mode: 'Markdown' });
+    let sightings;
+    try {
+      sightings = await sheetsService.getPersonalBirdSightings(user);
+    } finally {
+      await bot.deleteMessage(chatId, loadMsg.message_id).catch(() => {});
+    }
     if (!Array.isArray(sightings) || sightings.length === 0) {
       await bot.sendMessage(chatId,
         '📓 *My Sightings Logs*\n\nNo personal logs found yet. Use ➕ Add My Sighting to add entries.',
@@ -713,8 +710,7 @@ async function fetchNearbySightings(bot, chatId, latitude, longitude, dist, cont
       const displayName = `Your Location (${fmtDist(dist)})`;
       observationsCache.set(cacheKey, { observations, displayName, regionCode: nearbyRegion, type: 'nearby', dateLabel });
 
-      if (ENABLE_GSHEET_LOGGING) {
-        sheetsService.logBirdQuery({
+      sheetsService.logBirdQuery({
           user: context.user, chat: context.chat,
           sessionId: birdSessionMap.get(chatId)?.sessionId || '',
           command: 'Nearby', searchQuery: `Nearby (${fmtDist(dist)})`, regionCode: nearbyRegion,
@@ -722,7 +718,6 @@ async function fetchNearbySightings(bot, chatId, latitude, longitude, dist, cont
           uniqueSpeciesCount: new Set(observations.map(o => o.speciesCode)).size,
           speciesList: [...new Set(observations.map(o => o.comName))].slice(0, 10).join(', '),
         }).catch(err => logger.warn('Sheets log failed', { error: err.message }));
-      }
 
       await sendPaginatedObservations(bot, chatId, observations, displayName, 'nearby', 0, null, nearbyRegion, dateLabel);
     } else {
@@ -758,7 +753,7 @@ async function fetchNearbySightings(bot, chatId, latitude, longitude, dist, cont
 
 async function handleHotspots(bot, chatId) {
   userStates.set(chatId, { action: 'awaiting_region_hotspots' });
-  await bot.sendMessage(chatId,
+  const sentHotspots = await bot.sendMessage(chatId,
     '🗺️ *Enter a location to find birding hotspots:*\n\n' +
     'You can type any location worldwide:\n' +
     '• City or region: `Tokyo`, `Cape Town`, `Vancouver`\n' +
@@ -775,6 +770,8 @@ async function handleHotspots(bot, chatId) {
       },
     }
   );
+  const prevHotspots = userStates.get(chatId) || {};
+  userStates.set(chatId, { ...prevHotspots, promptMsgId: sentHotspots?.message_id });
 }
 
 async function searchAndShowHotspots(bot, chatId, userInput) {
@@ -844,7 +841,7 @@ async function searchAndShowHotspots(bot, chatId, userInput) {
 
 async function handleSpecies(bot, chatId) {
   userStates.set(chatId, { action: 'awaiting_species_name' });
-  await bot.sendMessage(chatId,
+  const sentSpecies = await bot.sendMessage(chatId,
     `🦆 *Search by Species Name*\n\n` +
     `Enter the species name you want to find:\n\n` +
     `*Examples:*\n` +
@@ -863,6 +860,8 @@ async function handleSpecies(bot, chatId) {
       },
     }
   );
+  const prevSpecies = userStates.get(chatId) || {};
+  userStates.set(chatId, { ...prevSpecies, promptMsgId: sentSpecies?.message_id });
 }
 
 async function searchSpeciesGlobally(bot, chatId, speciesName) {
@@ -903,7 +902,7 @@ async function searchSpeciesGlobally(bot, chatId, speciesName) {
       `• \`California\`\n` +
       `• \`Malaysia\`\n\n` +
       `💡 You can enter a country, region, or specific location.`;
-    await bot.sendMessage(chatId, message, {
+    const sentSpeciesLoc = await bot.sendMessage(chatId, message, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
@@ -911,6 +910,8 @@ async function searchSpeciesGlobally(bot, chatId, speciesName) {
         ],
       },
     });
+    const prevSpeciesLoc = userStates.get(chatId) || {};
+    userStates.set(chatId, { ...prevSpeciesLoc, promptMsgId: sentSpeciesLoc?.message_id });
   } catch (err) {
     logger.error('Species search error', { error: err.message });
     await deleteMsg(bot, chatId, _st?.message_id);
@@ -991,15 +992,13 @@ async function fetchSpeciesInLocation(bot, chatId, locationInput, speciesName, s
     const displayName = `${species.commonName} in ${locationInput} (${dateLabel})`;
     observationsCache.set(cacheKey, { observations, displayName, regionCode, type: 'species', dateLabel });
 
-    if (ENABLE_GSHEET_LOGGING) {
-      sheetsService.logBirdQuery({
-        user: context.user, chat: context.chat,
-        sessionId: birdSessionMap.get(chatId)?.sessionId || '',
-        command: 'Species', searchQuery: `${species.commonName} in ${locationInput}`, regionCode: isCoordS ? locationInput : regionCode,
-        totalSightings: observations.length, uniqueSpeciesCount: 1,
-        speciesList: species.commonName,
-      }).catch(err => logger.warn('Sheets log failed', { error: err.message }));
-    }
+    sheetsService.logBirdQuery({
+      user: context.user, chat: context.chat,
+      sessionId: birdSessionMap.get(chatId)?.sessionId || '',
+      command: 'Species', searchQuery: `${species.commonName} in ${locationInput}`, regionCode: isCoordS ? locationInput : regionCode,
+      totalSightings: observations.length, uniqueSpeciesCount: 1,
+      speciesList: species.commonName,
+    }).catch(err => logger.warn('Sheets log failed', { error: err.message }));
 
     await sendPaginatedObservations(bot, chatId, observations, displayName, 'species', 0, null, regionCode);
   } catch (err) {
