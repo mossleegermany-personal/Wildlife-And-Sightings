@@ -67,11 +67,16 @@ const MAIN_MENU = {
   reply_markup: {
     inline_keyboard: [
       [
-        { text: '🦎 Identify Animal', callback_data: 'menu_identify'  },
-        { text: '🐦 Bird Sightings',  callback_data: 'menu_sightings' },
+        { text: '🦎 Identify Animal', callback_data: 'menu_identify'     },
+        { text: '🐦 Bird Sightings',  callback_data: 'menu_sightings'    },
       ],
       [
-        { text: '❓ Help', callback_data: 'menu_help' },
+        { text: '➕ Add Sighting',    callback_data: 'menu_addsighting'  },
+        { text: '📋 My Records',      callback_data: 'menu_records'      },
+      ],
+      [
+        { text: '❓ Help',            callback_data: 'menu_help'         },
+        { text: 'ℹ️ About',           callback_data: 'menu_about'        },
       ],
     ],
   },
@@ -198,6 +203,21 @@ const CALLBACKS = {
       `/start — welcome message\n` +
       `/help — show this message\n` +
       `/about — about this bot`,
+      { parse_mode: 'HTML' }
+    );
+  },
+
+  menu_about(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    bot.sendMessage(
+      query.message.chat.id,
+      `<b>🌿 About Wildlife &amp; Sightings Bot</b>\n\n` +
+      `This bot is powered by:\n` +
+      `• 🤖 <b>Google Gemini AI</b> — animal identification\n` +
+      `• 🐦 <b>eBird</b> — bird sightings &amp; hotspots (Cornell Lab)\n` +
+      `• 🌍 <b>GBIF</b> — global biodiversity taxonomy\n` +
+      `• 📷 <b>iNaturalist</b> — species reference photos\n\n` +
+      `Send a photo to identify an animal, or tap <b>Help</b> for all commands.`,
       { parse_mode: 'HTML' }
     );
   },

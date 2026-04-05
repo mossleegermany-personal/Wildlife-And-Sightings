@@ -117,8 +117,7 @@ module.exports = function registerStart(bot) {
     bot.sendMessage(
       chatId,
       `👋 Hello, <b>${name}</b>! Welcome to the <b>Wildlife &amp; Sightings Bot</b>.\n\n` +
-      `I can help you identify animals and explore bird sightings.\n` +
-      `Choose an option below or type /help for all commands.`,
+      `What would you like to do?`,
       { parse_mode: 'HTML', ...MAIN_MENU }
     );
   });
