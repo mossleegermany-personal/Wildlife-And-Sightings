@@ -109,6 +109,10 @@ function escHtml(str) {
 // chatId → { buffer, mimeType, location, locationMsgId, imageCapturedAt, visualQuestion }
 const pending = new Map();
 
+// userId → identification is in progress (pending entry already consumed but not yet done)
+// Keeps hasPending() true so birdMenu's fallback doesn't fire while we identify.
+const pendingInFlight = new Set();
+
 // userId → { records, location, speciesName } — cached eBird sightings for the last result
 const ebirdSightingsCache = new Map();
 
@@ -656,6 +660,9 @@ module.exports = function registerIdentify(bot) {
 
     const state = pending.get(userId);
     const chatId = state.chatId;
+    // Mark in-flight BEFORE removing from pending so hasPending() stays true until
+    // identification is complete — prevents birdMenu's fallback from also handling this message.
+    pendingInFlight.add(userId);
     pending.delete(userId);
     await bot.deleteMessage(chatId, state.locationMsgId).catch(() => {});
     await bot.deleteMessage(chatId, msg.message_id).catch(() => {});
@@ -685,16 +692,20 @@ module.exports = function registerIdentify(bot) {
     }
 
     await bot.sendChatAction(chatId, 'upload_photo').catch(() => {});
-    await runIdentification(bot, chatId, state.buffer, state.mimeType, {
-      location: locationValue,
-      user: state.user,
-      inputFileId: state.inputFileId,
-      imageCapturedAt: state.imageCapturedAt,
-      visualQuestion: state.visualQuestion,
-      sessionId: state.sessionId || '',
-      chatType: state.chatType || 'private',
-      channelName: state.channelName || '',
-    });
+    try {
+      await runIdentification(bot, chatId, state.buffer, state.mimeType, {
+        location: locationValue,
+        user: state.user,
+        inputFileId: state.inputFileId,
+        imageCapturedAt: state.imageCapturedAt,
+        visualQuestion: state.visualQuestion,
+        sessionId: state.sessionId || '',
+        chatType: state.chatType || 'private',
+        channelName: state.channelName || '',
+      });
+    } finally {
+      pendingInFlight.delete(userId);
+    }
   });
 
   // ── Continue / Stop callbacks ──────────────────────────────────────────────
@@ -1059,9 +1070,9 @@ module.exports = function registerIdentify(bot) {
 
 module.exports.clearEndedSession = clearEndedSession;
 /** Clear a pending location-wait for a user so birdMenu can handle their next message. */
-module.exports.clearPending = (userId) => { if (userId) pending.delete(userId); };
-/** Returns true if identify is waiting for a location reply from this user. */
-module.exports.hasPending = (userId) => userId != null && pending.has(userId);
+module.exports.clearPending = (userId) => { if (userId) { pending.delete(userId); pendingInFlight.delete(userId); } };
+/** Returns true if identify is waiting for a location reply from this user OR is currently processing one. */
+module.exports.hasPending = (userId) => userId != null && (pending.has(userId) || pendingInFlight.has(userId));
 
 // ── Run identification ────────────────────────────────────────────────────────
 

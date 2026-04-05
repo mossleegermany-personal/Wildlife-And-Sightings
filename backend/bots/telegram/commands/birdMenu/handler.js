@@ -27,7 +27,7 @@ const {
   sendSummaryMessage, sendForwardableMessage,
 } = require('./pagination');
 const { sendSightingsCategoryMenu } = require('./ui');
-const { MAIN_MENU } = require('../../menu/mainMenu');
+const { MAIN_MENU, hasIdentifyPromptMessage } = require('../../menu/mainMenu');
 const {
   showDateSelection, showSpeciesDateSelection,
   handleDateCallback, handleCustomDateInput,
@@ -725,6 +725,17 @@ function registerBirdMenu(bot, addSightingSessions) {
         // addSighting has priority
         if (addSightingSessions && addSightingSessions.has(chatId)) return;
 
+        // ── Animal-identify guards (checked BEFORE any async operations) ─────
+        // These must run synchronously so that concurrent event-loop turns from
+        // identify.js cannot clear the pending state before we read it.
+        //
+        // (1) A "New Identification" prompt is showing — user is about to send
+        //     their photo. Don't intercept anything in this chat.
+        if (hasIdentifyPromptMessage(chatId)) return;
+        // (2) User sent a photo; identify.js is awaiting a text/GPS location reply.
+        if (getIdentify().hasPending?.(msg.from?.id)) return;
+        // ─────────────────────────────────────────────────────────────────────
+
         // Handle direct GPS location share (Nearby flow)
         const resolvedChannelContext = await resolveChannelContext(bot, msg.chat, msg.sender_chat || null).catch(() => ({
           channelId: (msg.chat?.type || 'private') === 'private' ? '' : String(msg.chat?.id ?? ''),
@@ -759,6 +770,8 @@ function registerBirdMenu(bot, addSightingSessions) {
         };
 
         if (msg.location) {
+          // Re-check after async: ensure identify isn't waiting for a GPS pin
+          if (getIdentify().hasPending?.(msg.from?.id)) return;
           logger.info('[birdMenu] message location received', { chatId });
           return handleLocationMsg(bot, chatId, msg, msgContext);
         }
@@ -770,9 +783,6 @@ function registerBirdMenu(bot, addSightingSessions) {
 
         // Ignore all bot commands — let their own handlers deal with them
         if (text.startsWith('/')) return;
-
-        // If identify.js is waiting for a location reply from this user, don't intercept it
-        if (getIdentify().hasPending?.(msg.from?.id)) return;
 
         if (!state) {
           logger.info('[birdMenu] universal fallback text location', { chatId, text });
