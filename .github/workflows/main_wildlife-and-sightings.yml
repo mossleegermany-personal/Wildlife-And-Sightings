@@ -26,6 +26,7 @@ jobs:
       - name: npm install, build, and test
         working-directory: backend
         run: |
+          npm cache clean --force
           npm ci
           npm run build --if-present
           npm run test --if-present
@@ -51,13 +52,21 @@ jobs:
         with:
           name: node-app
           path: backend
-      
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_FCA9999368374B49A4548B1EA0B009EF }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_34EB0DCAA25F428E8082F1F49C7D6015 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_FFAA30EC4E4046B1ADCA226C8578B41C }}
+
+      - name: 'Stop Azure Web App (clear runtime module cache)'
+        uses: azure/CLI@v2
+        with:
+          inlineScript: |
+            az webapp stop \
+              --name wildlife-and-sightings \
+              --resource-group "$(az webapp list --query "[?name=='wildlife-and-sightings'].resourceGroup | [0]" -o tsv)"
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp

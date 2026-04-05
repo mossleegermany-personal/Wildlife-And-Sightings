@@ -12,9 +12,9 @@
 const TelegramBot = require('node-telegram-bot-api');
 const logger = require('../../src/utils/logger');
 
-// ── Bird menu — must load before mainMenu to avoid circular require ────────────
-const birdMenu = require('./commands/birdMenu');
-const registerBirdMenu = birdMenu.registerBirdMenu;
+// ── Bird menu handler — imported directly from the leaf handler.js to avoid
+// circular-require issues on Azure that left birdMenu/index.js partially evaluated.
+const { handleBirdCallback, registerBirdMenu } = require('./commands/birdMenu/handler');
 
 // ── Menu ──────────────────────────────────────────────────────────────────────
 const { registerMainMenu } = require('./menu/mainMenu');
@@ -88,11 +88,12 @@ function createBot(app) {
   // Register menu callbacks (inline buttons) — handles menu_identify, menu_sightings, etc.
   registerMainMenu(bot);
 
-  // Register bird callback_query handler here, where birdMenu is guaranteed fully loaded.
-  // This replaces the old delegation from mainMenu (which failed due to circular-require on Azure).
+  // Register bird callback_query handler. handleBirdCallback is from handler.js (a leaf
+  // module with no circular-require risk), so this is guaranteed to be a function on Azure.
+  logger.info('[bot] typeof handleBirdCallback =', typeof handleBirdCallback);
   bot.on('callback_query', (query) => {
     if (!query?.data) return;
-    Promise.resolve(birdMenu.handleBirdCallback(bot, query)).catch((err) => {
+    Promise.resolve(handleBirdCallback(bot, query)).catch((err) => {
       logger.error('[bot] handleBirdCallback error', { cbData: query?.data, error: err.message, stack: err.stack });
     });
   });
