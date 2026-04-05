@@ -524,6 +524,85 @@ function registerBirdMenu(bot, addSightingSessions) {
           return;
         }
 
+        // ── Live Update: location input (sightings / notable) ──────────────
+        if (action === 'awaiting_live_location') {
+          userStates.delete(chatId);
+          const { liveType } = state;
+          const _st = await bot.sendMessage(chatId, `🔍 Setting up live updates for *${esc(text)}*...`, { parse_mode: 'Markdown' });
+          try {
+            const regionCode = await resolveRegionCode(text);
+            await startLiveUpdate(bot, chatId, liveType, text, regionCode, null);
+            await deleteMsg(bot, chatId, _st?.message_id);
+            const typeLabel = liveType === 'notable' ? '⭐ Notable' : '🔍 Sightings';
+            await bot.sendMessage(chatId,
+              `✅ *Live Updates Active!*\n\n📡 Tracking: *${typeLabel}*\n📍 Location: *${esc(text)}*\n\nYou'll be notified of new sightings every 30 seconds.`,
+              {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  inline_keyboard: [
+                    [{ text: '🔕 Stop', callback_data: 'live_stop' }, { text: '🔄 Change', callback_data: 'live_setup' }],
+                  ],
+                },
+              }
+            );
+          } catch (err) {
+            await deleteMsg(bot, chatId, _st?.message_id);
+            await bot.sendMessage(chatId, `❌ Could not set up live updates for *${esc(text)}*. Please try again.`, { parse_mode: 'Markdown' });
+          }
+          return;
+        }
+
+        // ── Live Update: species + location input ──────────────────────────
+        if (action === 'awaiting_live_species') {
+          const commaIdx = text.indexOf(',');
+          if (commaIdx === -1) {
+            await bot.sendMessage(chatId,
+              '❌ Please use the format: `Species Name, Location`\nExample: `House Sparrow, Singapore`',
+              { parse_mode: 'Markdown' }
+            );
+            return;
+          }
+          userStates.delete(chatId);
+          const speciesInput  = text.slice(0, commaIdx).trim();
+          const locationInput = text.slice(commaIdx + 1).trim();
+          const _st = await bot.sendMessage(chatId,
+            `🔍 Setting up live updates for *${esc(speciesInput)}* in *${esc(locationInput)}*...`,
+            { parse_mode: 'Markdown' }
+          );
+          try {
+            const matches = await ebird.searchSpeciesByName(speciesInput).catch(() => []);
+            if (!matches || matches.length === 0) {
+              await deleteMsg(bot, chatId, _st?.message_id);
+              await bot.sendMessage(chatId,
+                `❌ Species "*${esc(speciesInput)}*" not found.\n\n💡 Try the exact name as it appears in eBird.`,
+                { parse_mode: 'Markdown' }
+              );
+              userStates.set(chatId, { action: 'awaiting_live_species' });
+              return;
+            }
+            const sp       = matches[0];
+            const species  = { code: sp.speciesCode, commonName: sp.comName, scientificName: sp.sciName };
+            const regionCode = await resolveRegionCode(locationInput);
+            await startLiveUpdate(bot, chatId, 'species', locationInput, regionCode, species);
+            await deleteMsg(bot, chatId, _st?.message_id);
+            await bot.sendMessage(chatId,
+              `✅ *Live Updates Active!*\n\n📡 Tracking: *🦆 ${esc(sp.comName)}*\n📍 Location: *${esc(locationInput)}*\n\nYou'll be notified of new sightings every 30 seconds.`,
+              {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                  inline_keyboard: [
+                    [{ text: '🔕 Stop', callback_data: 'live_stop' }, { text: '🔄 Change', callback_data: 'live_setup' }],
+                  ],
+                },
+              }
+            );
+          } catch (err) {
+            await deleteMsg(bot, chatId, _st?.message_id);
+            await bot.sendMessage(chatId, '❌ Could not set up live updates. Please try again.', { parse_mode: 'Markdown' });
+          }
+          return;
+        }
+
       } catch (err) {
         logger.error('[birdMenu] Unhandled error in message handler', { action: userStates.get(msg?.chat?.id)?.action, error: err.message });
       }

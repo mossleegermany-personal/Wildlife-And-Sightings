@@ -21,19 +21,19 @@ const EBIRD_SUBMENU = {
   reply_markup: {
     inline_keyboard: [
       [
-        { text: '🔍 Sightings', callback_data: 'bird_sightings' },
-        { text: '⭐ Notable',   callback_data: 'bird_notable'    },
+        { text: '🔍 Sightings', callback_data: 'bird_sightings'    },
+        { text: '⭐ Notable',   callback_data: 'bird_notable'       },
       ],
       [
-        { text: '📍 Nearby',   callback_data: 'bird_nearby'     },
-        { text: '🦆 Species',  callback_data: 'bird_species'    },
+        { text: '📍 Nearby',   callback_data: 'bird_nearby'        },
+        { text: '🦆 Species',  callback_data: 'bird_species'       },
       ],
       [
-        { text: '🗺️ Hotspots', callback_data: 'bird_hotspot'    },
+        { text: '🔔 Live Updates', callback_data: 'bird_live_updates' },
       ],
       [
-        { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
-        { text: '✅ Done',    callback_data: 'done'            },
+        { text: '⬅️ Back',    callback_data: 'bird_back_main'     },
+        { text: '✅ Done',    callback_data: 'done'               },
       ],
     ],
   },
