@@ -402,6 +402,9 @@ function registerBirdMenu(bot, addSightingSessions) {
 
         if (!text) return;
 
+        // Ignore all bot commands — let their own handlers deal with them
+        if (text.startsWith('/')) return;
+
         if (!state) {
           logger.info('[birdMenu] universal fallback text location', { chatId, text });
           userStates.set(chatId, { action: 'awaiting_region_sightings', context: { user: msg.from, chat: msg.chat } });
@@ -411,8 +414,6 @@ function registerBirdMenu(bot, addSightingSessions) {
         if (state.action === 'awaiting_region_sightings' || state.action === 'awaiting_region_notable' || state.action === 'awaiting_species_location') {
           logger.info('[birdMenu] state-driven text location input', { chatId, state: state.action, text });
         }
-
-        if (msg.text && msg.text.startsWith('/')) return;
 
         const action = state.action;
         const context = state.context || { user: msg.from, chat: msg.chat };

@@ -517,6 +517,9 @@ function registerBirdMenu(bot, addSightingSessions) {
 
         if (!text) return;
 
+        // Ignore all bot commands — let their own handlers deal with them
+        if (text.startsWith('/')) return;
+
         if (!state) {
           // Universal fallback: single-phrase location search even without a state
           logger.info('[birdMenu] universal fallback text location', { chatId, text });
@@ -529,9 +532,6 @@ function registerBirdMenu(bot, addSightingSessions) {
           logger.info('[birdMenu] state-driven text location input', { chatId, state: state.action, text });
           // fall through to route based on action
         }
-
-    // Skip commands
-    if (msg.text && msg.text.startsWith('/')) return;
 
     const action = state.action;
     const context = state.context || { user: msg.from, chat: msg.chat };
