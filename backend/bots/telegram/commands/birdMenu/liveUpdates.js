@@ -9,7 +9,7 @@ const logger      = require('../../../../src/utils/logger');
 // chatId → { type, locationInput, regionCode, species, seenSubIds: Set, timerId }
 const liveSubMap = new Map();
 
-const POLL_INTERVAL_MS = 30 * 1000; // 30 seconds — near real-time (eBird data depends on checklist submission by birders)
+const POLL_INTERVAL_MS = 10 * 1000; // 10 seconds — near real-time (eBird data depends on checklist submission by birders)
 const BACK_DAYS        = 1;         // eBird API: fetch the last 1 day; we further filter to today only below
 
 // Returns today's date as 'YYYY-MM-DD' in the timezone matching regionCode

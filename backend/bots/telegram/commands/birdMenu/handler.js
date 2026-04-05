@@ -25,6 +25,7 @@ const {
   sendSummaryMessage, sendForwardableMessage,
 } = require('./pagination');
 const { sendSightingsCategoryMenu } = require('./ui');
+const { MAIN_MENU } = require('../../menu/mainMenu');
 const {
   showDateSelection, showSpeciesDateSelection,
   handleDateCallback, handleCustomDateInput,
@@ -338,7 +339,7 @@ function handleBirdCallback(bot, query) {
         bot.answerCallbackQuery(query.id);
         clearSession(chatId);
         try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-        return bot.sendMessage(chatId, '*Bird Sightings*\n\nChoose a search type:', {
+        return bot.sendMessage(chatId, '*eBird Search*\n\nChoose a search type:', {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
@@ -351,6 +352,9 @@ function handleBirdCallback(bot, query) {
                 { text: '🦆 Species',  callback_data: 'bird_species'    },
               ],
               [
+                { text: '🔔 Live Updates', callback_data: 'bird_live_updates' },
+              ],
+              [
                 { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
                 { text: '✅ Done',    callback_data: 'done'            },
               ],
@@ -359,13 +363,113 @@ function handleBirdCallback(bot, query) {
         });
       }
 
+      // ── Live Updates ──────────────────────────────────────────────────────
+      if (cbData === 'bird_live_updates') {
+        bot.answerCallbackQuery(query.id);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        const sub = getLiveUpdate(chatId);
+        if (sub) {
+          const typeLabel = sub.type === 'notable' ? '⭐ Notable'
+            : sub.type === 'species' ? `🦆 ${sub.species?.commonName}`
+            : '🔍 Sightings';
+          return bot.sendMessage(chatId,
+            `🔔 *Live Updates Active*\n\n📡 Tracking: *${esc(typeLabel)}*\n📍 Location: *${esc(sub.locationInput)}*\n\nPolling every 30 seconds for new sightings.`,
+            {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🔕 Stop', callback_data: 'live_stop' }, { text: '🔄 Change', callback_data: 'live_setup' }],
+                  [{ text: '⬅️ Back', callback_data: 'menu_ebird' }],
+                ],
+              },
+            }
+          );
+        }
+        return bot.sendMessage(chatId,
+          '🔔 *Live Updates*\n\nGet notified when new bird sightings are posted to eBird.\n\n' +
+          '• 🔍 *Sightings* — any recent observations in a location\n' +
+          '• ⭐ *Notable* — rare or unusual birds only\n' +
+          '• 🦆 *Species* — a specific species in a location\n\n' +
+          'What would you like to track?',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔍 Sightings', callback_data: 'live_type_sightings' }, { text: '⭐ Notable', callback_data: 'live_type_notable' }],
+                [{ text: '🦆 Species', callback_data: 'live_type_species' }],
+                [{ text: '⬅️ Back', callback_data: 'menu_ebird' }],
+              ],
+            },
+          }
+        );
+      }
+
+      if (cbData === 'live_setup') {
+        bot.answerCallbackQuery(query.id);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        return bot.sendMessage(chatId,
+          '🔔 *Live Updates — Choose Type*\n\nWhat would you like to track?',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔍 Sightings', callback_data: 'live_type_sightings' }, { text: '⭐ Notable', callback_data: 'live_type_notable' }],
+                [{ text: '🦆 Species', callback_data: 'live_type_species' }],
+              ],
+            },
+          }
+        );
+      }
+
+      if (cbData === 'live_type_sightings' || cbData === 'live_type_notable') {
+        bot.answerCallbackQuery(query.id);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        const liveType = cbData === 'live_type_sightings' ? 'sightings' : 'notable';
+        userStates.set(chatId, { action: 'awaiting_live_location', liveType });
+        const typeWord = liveType === 'notable' ? '⭐ notable' : '🔍';
+        return bot.sendMessage(chatId,
+          `📍 *Enter a location to track ${typeWord} sightings:*\n\nExamples: \`Singapore\`, \`Botanic Gardens, Singapore\``,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [[{ text: '🔄 Try Again', callback_data: 'menu_ebird' }, { text: '✅ Done', callback_data: 'done' }]],
+            },
+          }
+        );
+      }
+
+      if (cbData === 'live_type_species') {
+        bot.answerCallbackQuery(query.id);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        userStates.set(chatId, { action: 'awaiting_live_species' });
+        return bot.sendMessage(chatId,
+          `🦆 *Enter species and location:*\n\nFormat: \`Species Name, Location\`\n\nExamples:\n• \`House Sparrow, Singapore\`\n• \`Oriental Magpie-Robin, Botanic Gardens, Singapore\``,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [[{ text: '🔄 Try Again', callback_data: 'menu_ebird' }, { text: '✅ Done', callback_data: 'done' }]],
+            },
+          }
+        );
+      }
+
+      if (cbData === 'live_stop') {
+        bot.answerCallbackQuery(query.id);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        stopLiveUpdate(chatId);
+        return bot.sendMessage(chatId,
+          '🔕 *Live Updates stopped.*\n\nUse 🔔 Live Updates to start again.',
+          { parse_mode: 'Markdown' }
+        );
+      }
+
       // ── Done (standalone fallback) ───────────────────────────────────────
       if (cbData === 'done') {
         bot.answerCallbackQuery(query.id);
         userStates.delete(chatId);
         clearSession(chatId);
         try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-        await bot.sendMessage(chatId, '✅ Session ended. Use /start to begin again.');
+        await bot.sendMessage(chatId, '📋 *Main Menu*', { parse_mode: 'Markdown', ...MAIN_MENU });
         return;
       }
 

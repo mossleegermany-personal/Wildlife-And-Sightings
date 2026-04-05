@@ -114,11 +114,19 @@ module.exports = function registerStart(bot) {
     }
 
     const name = escHtml(getWelcomeName(msg.from, senderChat));
-    bot.sendMessage(
+
+    // Welcome message first
+    await bot.sendMessage(
       chatId,
       `👋 Hello, <b>${name}</b>! Welcome to the <b>Wildlife &amp; Sightings Bot</b>.\n\n` +
-      `What would you like to do?`,
-      { parse_mode: 'HTML', ...MAIN_MENU }
+      `🌿 Here's what I can do:\n` +
+      `• 🦎 <b>Identify animals</b> — send a photo and I'll tell you what it is\n` +
+      `• 🐦 <b>Bird Sightings</b> — explore recent sightings, notable birds, and more via eBird\n` +
+      `• 📓 <b>My Logs</b> — view your personal sighting history\n\n` +
+      `Choose an option below to get started:`,
+      { parse_mode: 'HTML' }
     );
+
+    bot.sendMessage(chatId, '📋 Main Menu', MAIN_MENU);
   });
 };
