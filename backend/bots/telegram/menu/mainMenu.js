@@ -67,16 +67,11 @@ const MAIN_MENU = {
   reply_markup: {
     inline_keyboard: [
       [
-        { text: '🦎 Identify Animal', callback_data: 'menu_identify'     },
-        { text: '🐦 Bird Sightings',  callback_data: 'menu_sightings'    },
+        { text: '🦎 Identify Animal', callback_data: 'menu_identify'  },
+        { text: '🐦 Bird Sightings',  callback_data: 'menu_sightings' },
       ],
       [
-        { text: '➕ Add Sighting',    callback_data: 'menu_addsighting'  },
-        { text: '📋 My Records',      callback_data: 'menu_records'      },
-      ],
-      [
-        { text: '❓ Help',            callback_data: 'menu_help'         },
-        { text: 'ℹ️ About',           callback_data: 'menu_about'        },
+        { text: '❓ Help', callback_data: 'menu_help' },
       ],
     ],
   },

@@ -6,7 +6,7 @@ const SIGHTINGS_CATEGORY_MENU = {
   reply_markup: {
     inline_keyboard: [
       [
-        { text: '� Sightings', callback_data: 'bird_sightings' },
+        { text: '🔍 Sightings', callback_data: 'bird_sightings' },
         { text: '⭐ Notable',   callback_data: 'bird_notable'    },
       ],
       [
