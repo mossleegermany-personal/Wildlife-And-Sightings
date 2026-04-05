@@ -14,7 +14,6 @@ const logger = require('../../src/utils/logger');
 
 // ── Bird menu — must load before mainMenu to avoid circular require ────────────
 const birdMenu = require('./commands/birdMenu');
-const birdFlows = require('./commands/birdMenu/flows');
 const registerBirdMenu = birdMenu.registerBirdMenu;
 
 // ── Menu ──────────────────────────────────────────────────────────────────────
@@ -86,21 +85,12 @@ function createBot(app) {
     return _deleteMessage(...args).catch(() => null);
   };
 
-  // Register menu callbacks (inline buttons)
-  // Pass a wrapper so birdMenu.handleBirdCallback is resolved lazily at call time,
-  // guarding against circular-require on Azure where module evaluation order can differ.
-  registerMainMenu(bot, (b, q) => birdMenu.handleBirdCallback(b, q));
+  // Register menu callbacks (inline buttons).
+  // handleBirdCallback is resolved lazily inside mainMenu via getBirdMenu().
+  registerMainMenu(bot);
 
-  // Handle raw location share globally.
-  bot.on('message', (msg) => {
-    if (!msg || !msg.location) return;
-    const chatId = msg.chat?.id;
-    if (!chatId) return;
-
-    birdFlows.handleLocationMsg(bot, chatId, msg, { user: msg.from, chat: msg.chat }).catch((err) => {
-      logger.error('[bot] birdFlows.handleLocationMsg failed', { error: err.message, stack: err.stack });
-    });
-  });
+  // NOTE: raw location shares are handled inside registerBirdMenu's message listener.
+  // A separate global handler here would call handleLocationMsg twice (duplicate menus).
 
   // Register all command handlers
   registerStart(bot);

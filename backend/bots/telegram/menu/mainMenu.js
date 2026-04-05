@@ -241,7 +241,17 @@ const CALLBACKS = {
 
 // ── Register callback_query listener ─────────────────────────────────────────
 
-function registerMainMenu(bot, handleBirdCallback) {
+// Lazy-load birdMenu to break any circular-require chain.
+// By the time any callback fires, all modules are fully initialised.
+let _birdMenu = null;
+function getBirdMenu() {
+  if (!_birdMenu) {
+    _birdMenu = require('../commands/birdMenu');
+  }
+  return _birdMenu;
+}
+
+function registerMainMenu(bot) {
   logger.info('[mainMenu] registerMainMenu called');
 
   bot.on('callback_query', (query) => {
@@ -249,11 +259,15 @@ function registerMainMenu(bot, handleBirdCallback) {
 
     const handler = CALLBACKS[query.data];
     if (handler) {
-      handler(bot, query);
+      // Wrap in Promise.resolve so async handlers don't produce unhandled rejections
+      // (Azure Node.js crashes the process on unhandled rejections by default).
+      Promise.resolve(handler(bot, query)).catch((err) => {
+        logger.error('[mainMenu] callback handler threw', { cbData: query?.data, error: err.message, stack: err.stack });
+      });
       return;
     }
 
-    handleBirdCallback(bot, query);
+    getBirdMenu().handleBirdCallback(bot, query);
   });
 }
 
