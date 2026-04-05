@@ -343,8 +343,8 @@ async function buildResultPanelCanvas(data, W, H) {
     const sexMethodVal = String(data.sexMethod || '').toLowerCase();
     const showSex = sexConf >= 0.55 || sexMethodVal === 'from_image_plumage' || sexMethodVal === 'from_species_knowledge';
     let sexLabel, sexTextColor;
-    if (sexVal.toLowerCase() === 'male') { sexLabel = '♂ Male'; sexTextColor = '#3b82f6'; }
-    else if (sexVal.toLowerCase() === 'female') { sexLabel = '♀ Female'; sexTextColor = '#ec4899'; }
+    if (sexVal.toLowerCase() === 'male') { sexLabel = 'Male'; sexTextColor = '#3b82f6'; }
+    else if (sexVal.toLowerCase() === 'female') { sexLabel = 'Female'; sexTextColor = '#ec4899'; }
     else { sexLabel = null; sexTextColor = null; }
     if (sexLabel && showSex) headerBadges.push({ label: sexLabel, color: '#2dd4bf', textColor: sexTextColor });
   }
@@ -356,12 +356,6 @@ async function buildResultPanelCanvas(data, W, H) {
   }
   if (!skip(morphVal)) {
     headerBadges.push({ label: cleanBadgeLabel(morphVal), color: '#f472b6' });
-  }
-  if (!skip(data.migratoryStatus)) {
-    const migSkip = ['resident']; // Resident is the default — not worth a badge unless locale is interesting
-    if (!migSkip.includes(String(data.migratoryStatus).toLowerCase().trim())) {
-      headerBadges.push({ label: cleanBadgeLabel(data.migratoryStatus), color: '#818cf8' });
-    }
   }
 
   const leftX = 16;
@@ -481,8 +475,8 @@ function buildResultPanel(data, W, H) {
   // 3. Sex
   if (!_skip(sexVal) && sexVal !== 'Unknown') {
     let sexLabel, sexTextColor;
-    if (sexVal.toLowerCase() === 'male') { sexLabel = '♂ Male'; sexTextColor = '#3b82f6'; }
-    else if (sexVal.toLowerCase() === 'female') { sexLabel = '♀ Female'; sexTextColor = '#ec4899'; }
+    if (sexVal.toLowerCase() === 'male') { sexLabel = 'Male'; sexTextColor = '#3b82f6'; }
+    else if (sexVal.toLowerCase() === 'female') { sexLabel = 'Female'; sexTextColor = '#ec4899'; }
     else { sexLabel = null; sexTextColor = null; } // N/A or anything else — skip
     if (sexLabel) headerBadges.push({ label: sexLabel, color: '#2dd4bf', textColor: sexTextColor });
   }
