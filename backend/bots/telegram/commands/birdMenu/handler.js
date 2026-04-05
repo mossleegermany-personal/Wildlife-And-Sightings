@@ -727,6 +727,27 @@ function registerBirdMenu(bot, addSightingSessions) {
           channelId: (msg.chat?.type || 'private') === 'private' ? '' : String(msg.sender_chat?.id ?? msg.chat?.id ?? ''),
           channelName: (msg.chat?.type || 'private') === 'private' ? '' : String(msg.sender_chat?.title || msg.chat?.title || ''),
         };
+        const senderLabel = (msg.from?.username ? `@${msg.from.username}` : [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ')) || 'Unknown';
+        const updateLiveUpdateSheetStatus = (sub, status) => {
+          if (!sub) return Promise.resolve(false);
+          const command = sub.type === 'notable' ? 'Notable Sightings' : sub.type === 'species' ? 'Species' : 'Sightings';
+          const searchQuery = sub.type === 'species'
+            ? (sub.species?.commonName ? `${sub.species.commonName} in ${sub.locationInput || ''}`.trim() : (sub.locationInput || ''))
+            : (sub.locationInput || '');
+          return sheetsService.updateLatestLiveUpdateStatus({
+            chatId,
+            channelId: msgContext.channelId,
+            channelName: msgContext.channelName,
+            sender: senderLabel,
+            command,
+            searchQuery,
+            location: sub.locationInput || '',
+            status,
+          }).catch(err => {
+            logger.warn('[birdMenu] live update status sync failed (message)', { status, error: err.message });
+            return false;
+          });
+        };
 
         if (msg.location) {
           logger.info('[birdMenu] message location received', { chatId });
@@ -917,6 +938,7 @@ function registerBirdMenu(bot, addSightingSessions) {
               }
             );
           } catch (err) {
+            logger.error('[birdMenu] Live update setup failed', { liveType, text, error: err.message, stack: err.stack });
             await deleteMsg(bot, chatId, _st?.message_id);
             await bot.sendMessage(chatId, `❌ Could not set up live updates for *${esc(text)}*. Please try again.`, { parse_mode: 'Markdown' });
           }
@@ -986,6 +1008,7 @@ function registerBirdMenu(bot, addSightingSessions) {
               }
             );
           } catch (err) {
+            logger.error('[birdMenu] Species live update setup failed', { speciesInput, locationInput, error: err.message, stack: err.stack });
             await deleteMsg(bot, chatId, _st?.message_id);
             await bot.sendMessage(chatId, '❌ Could not set up live updates. Please try again.', { parse_mode: 'Markdown' });
           }
