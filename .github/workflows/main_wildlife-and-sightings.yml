@@ -67,62 +67,62 @@ jobs:
           slot-name: 'Production'
           package: backend
 
-      - name: Configure Azure App Settings from GitHub Secrets
-        uses: azure/CLI@v2
-        env:
-          AZURE_WEBAPP_NAME: wildlife-and-sightings
-          AZURE_WEBAPP_RESOURCE_GROUP: ${{ secrets.AZURE_WEBAPP_RESOURCE_GROUP }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          EBIRD_API_KEY: ${{ secrets.EBIRD_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_WEBHOOK_URL: ${{ secrets.TELEGRAM_WEBHOOK_URL }}
-          TELEGRAM_WEBHOOK_PATH: ${{ secrets.TELEGRAM_WEBHOOK_PATH }}
-          TELEGRAM_WEBHOOK_SECRET_TOKEN: ${{ secrets.TELEGRAM_WEBHOOK_SECRET_TOKEN }}
-          PORT: ${{ secrets.PORT }}
-
-          GOOGLE_SHEETS_CLIENT_EMAIL: ${{ secrets.GOOGLE_SHEETS_CLIENT_EMAIL }}
-          GOOGLE_SHEETS_PRIVATE_KEY: ${{ secrets.GOOGLE_SHEETS_PRIVATE_KEY }}
-          GOOGLE_SHEETS_SPREADSHEET_ID: ${{ secrets.GOOGLE_SHEETS_SPREADSHEET_ID }}
-          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
-        with:
-          inlineScript: |
-            if [ -z "$AZURE_WEBAPP_RESOURCE_GROUP" ]; then
-              AZURE_WEBAPP_RESOURCE_GROUP=$(az webapp list --query "[?name=='$AZURE_WEBAPP_NAME'].resourceGroup | [0]" -o tsv)
-            fi
-
-            if [ -z "$AZURE_WEBAPP_RESOURCE_GROUP" ]; then
-              echo "Could not resolve resource group for web app '$AZURE_WEBAPP_NAME'. Set AZURE_WEBAPP_RESOURCE_GROUP secret or verify app exists in this subscription."
-              exit 1
-            fi
-
-            az webapp config appsettings set \
-              --resource-group "$AZURE_WEBAPP_RESOURCE_GROUP" \
-              --name "$AZURE_WEBAPP_NAME" \
-              --output none \
-              --settings \
-                GEMINI_API_KEY="$GEMINI_API_KEY" \
-                EBIRD_API_KEY="$EBIRD_API_KEY" \
-                TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
-                TELEGRAM_WEBHOOK_URL="$TELEGRAM_WEBHOOK_URL" \
-                TELEGRAM_WEBHOOK_PATH="$TELEGRAM_WEBHOOK_PATH" \
-                TELEGRAM_WEBHOOK_SECRET_TOKEN="$TELEGRAM_WEBHOOK_SECRET_TOKEN" \
-                PORT="$PORT" \
-                GOOGLE_SHEETS_CLIENT_EMAIL="$GOOGLE_SHEETS_CLIENT_EMAIL" \
-                GOOGLE_SHEETS_PRIVATE_KEY="$GOOGLE_SHEETS_PRIVATE_KEY" \
-                GOOGLE_SHEETS_SPREADSHEET_ID="$GOOGLE_SHEETS_SPREADSHEET_ID" \
-                GOOGLE_DRIVE_FOLDER_ID="$GOOGLE_DRIVE_FOLDER_ID" \
-                SCM_DO_BUILD_DURING_DEPLOYMENT="true"
-
-            # Wait for the app to finish restarting after appsettings change before modifying config
-            echo "Waiting for app to settle after appsettings update..."
-            sleep 30
-
-            az webapp config set \
-              --resource-group "$AZURE_WEBAPP_RESOURCE_GROUP" \
-              --name "$AZURE_WEBAPP_NAME" \
-              --output none \
-              --startup-file "cd /home/site/wwwroot && if [ ! -d node_modules ] || [ ! -d node_modules/dotenv ]; then npm ci --omit=dev; fi && node bin/www" \
-              --always-on true
+      # - name: Configure Azure App Settings from GitHub Secrets
+      #   uses: azure/CLI@v2
+      #   env:
+      #     AZURE_WEBAPP_NAME: wildlife-and-sightings
+      #     AZURE_WEBAPP_RESOURCE_GROUP: ${{ secrets.AZURE_WEBAPP_RESOURCE_GROUP }}
+      #     GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      #     EBIRD_API_KEY: ${{ secrets.EBIRD_API_KEY }}
+      #     TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      #     TELEGRAM_WEBHOOK_URL: ${{ secrets.TELEGRAM_WEBHOOK_URL }}
+      #     TELEGRAM_WEBHOOK_PATH: ${{ secrets.TELEGRAM_WEBHOOK_PATH }}
+      #     TELEGRAM_WEBHOOK_SECRET_TOKEN: ${{ secrets.TELEGRAM_WEBHOOK_SECRET_TOKEN }}
+      #     PORT: ${{ secrets.PORT }}
+      #
+      #     GOOGLE_SHEETS_CLIENT_EMAIL: ${{ secrets.GOOGLE_SHEETS_CLIENT_EMAIL }}
+      #     GOOGLE_SHEETS_PRIVATE_KEY: ${{ secrets.GOOGLE_SHEETS_PRIVATE_KEY }}
+      #     GOOGLE_SHEETS_SPREADSHEET_ID: ${{ secrets.GOOGLE_SHEETS_SPREADSHEET_ID }}
+      #     GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+      #   with:
+      #     inlineScript: |
+      #       if [ -z "$AZURE_WEBAPP_RESOURCE_GROUP" ]; then
+      #         AZURE_WEBAPP_RESOURCE_GROUP=$(az webapp list --query "[?name=='$AZURE_WEBAPP_NAME'].resourceGroup | [0]" -o tsv)
+      #       fi
+      #
+      #       if [ -z "$AZURE_WEBAPP_RESOURCE_GROUP" ]; then
+      #         echo "Could not resolve resource group for web app '$AZURE_WEBAPP_NAME'. Set AZURE_WEBAPP_RESOURCE_GROUP secret or verify app exists in this subscription."
+      #         exit 1
+      #       fi
+      #
+      #       az webapp config appsettings set \
+      #         --resource-group "$AZURE_WEBAPP_RESOURCE_GROUP" \
+      #         --name "$AZURE_WEBAPP_NAME" \
+      #         --output none \
+      #         --settings \
+      #           GEMINI_API_KEY="$GEMINI_API_KEY" \
+      #           EBIRD_API_KEY="$EBIRD_API_KEY" \
+      #           TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
+      #           TELEGRAM_WEBHOOK_URL="$TELEGRAM_WEBHOOK_URL" \
+      #           TELEGRAM_WEBHOOK_PATH="$TELEGRAM_WEBHOOK_PATH" \
+      #           TELEGRAM_WEBHOOK_SECRET_TOKEN="$TELEGRAM_WEBHOOK_SECRET_TOKEN" \
+      #           PORT="$PORT" \
+      #           GOOGLE_SHEETS_CLIENT_EMAIL="$GOOGLE_SHEETS_CLIENT_EMAIL" \
+      #           GOOGLE_SHEETS_PRIVATE_KEY="$GOOGLE_SHEETS_PRIVATE_KEY" \
+      #           GOOGLE_SHEETS_SPREADSHEET_ID="$GOOGLE_SHEETS_SPREADSHEET_ID" \
+      #           GOOGLE_DRIVE_FOLDER_ID="$GOOGLE_DRIVE_FOLDER_ID" \
+      #           SCM_DO_BUILD_DURING_DEPLOYMENT="true"
+      #
+      #       # Wait for the app to finish restarting after appsettings change before modifying config
+      #       echo "Waiting for app to settle after appsettings update..."
+      #       sleep 30
+      #
+      #       az webapp config set \
+      #         --resource-group "$AZURE_WEBAPP_RESOURCE_GROUP" \
+      #         --name "$AZURE_WEBAPP_NAME" \
+      #         --output none \
+      #         --startup-file "cd /home/site/wwwroot && if [ ! -d node_modules ] || [ ! -d node_modules/dotenv ]; then npm ci --omit=dev; fi && node bin/www" \
+      #         --always-on true
 
       - name: 'Ensure Azure Web App is running after deploy'
         uses: azure/CLI@v2
