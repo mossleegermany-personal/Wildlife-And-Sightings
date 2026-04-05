@@ -98,6 +98,7 @@ jobs:
             az webapp config appsettings set \
               --resource-group "$AZURE_WEBAPP_RESOURCE_GROUP" \
               --name "$AZURE_WEBAPP_NAME" \
+              --output none \
               --settings \
                 GEMINI_API_KEY="$GEMINI_API_KEY" \
                 EBIRD_API_KEY="$EBIRD_API_KEY" \
@@ -112,9 +113,14 @@ jobs:
                 GOOGLE_DRIVE_FOLDER_ID="$GOOGLE_DRIVE_FOLDER_ID" \
                 SCM_DO_BUILD_DURING_DEPLOYMENT="true"
 
+            # Wait for the app to finish restarting after appsettings change before modifying config
+            echo "Waiting for app to settle after appsettings update..."
+            sleep 30
+
             az webapp config set \
               --resource-group "$AZURE_WEBAPP_RESOURCE_GROUP" \
               --name "$AZURE_WEBAPP_NAME" \
+              --output none \
               --startup-file "cd /home/site/wwwroot && if [ ! -d node_modules ] || [ ! -d node_modules/dotenv ]; then npm ci --omit=dev; fi && node bin/www" \
               --always-on true
 
