@@ -87,8 +87,9 @@ function createBot(app) {
   };
 
   // Register menu callbacks (inline buttons)
-  // birdMenu is fully loaded above so handleBirdCallback is guaranteed defined here.
-  registerMainMenu(bot, birdMenu.handleBirdCallback);
+  // Pass a wrapper so birdMenu.handleBirdCallback is resolved lazily at call time,
+  // guarding against circular-require on Azure where module evaluation order can differ.
+  registerMainMenu(bot, (b, q) => birdMenu.handleBirdCallback(b, q));
 
   // Handle raw location share globally.
   bot.on('message', (msg) => {
