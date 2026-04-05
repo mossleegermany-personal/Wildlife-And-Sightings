@@ -18,6 +18,7 @@ const { ITEMS_PER_PAGE } = require('./constants');
 const { esc } = require('./helpers');
 const { toRegionCode, resolveRegionCode } = require('./location');
 const { startLiveUpdate, stopLiveUpdate, getLiveUpdate } = require('./liveUpdates');
+const { ensureActiveBirdSession, endBirdSession } = require('./session');
 const { userStates, observationsCache, lastPrompts } = require('./state');
 const {
   deleteMsg,
@@ -81,7 +82,13 @@ function handleBirdCallback(bot, query) {
       const chatId  = query.message?.chat?.id;
       const user    = query.from;
       const chat    = query.message?.chat;
-      const context = { user, chat };
+      const birdSessionOpts = {
+        channelId: (chat?.type || 'private') === 'private' ? '' : String(query.message?.sender_chat?.id ?? chatId ?? ''),
+        channelName: (chat?.type || 'private') === 'private' ? '' : String(query.message?.sender_chat?.title || chat?.title || ''),
+      };
+      const context = { user, chat, channelId: birdSessionOpts.channelId, channelName: birdSessionOpts.channelName };
+      const ensureBirdSession = () => ensureActiveBirdSession(chat, user, birdSessionOpts)
+        .catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
 
       if (!chatId) {
         logger.warn('[birdMenu] callback_query missing message/chat', { cbData });
@@ -96,6 +103,7 @@ function handleBirdCallback(bot, query) {
       const actionHandlers = {
         bird_sightings: async () => {
           bot.answerCallbackQuery(query.id);
+          await ensureBirdSession();
           getIdentify().clearPending?.(user?.id);
           clearSession(chatId);
           try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
@@ -103,6 +111,7 @@ function handleBirdCallback(bot, query) {
         },
         bird_notable: async () => {
           bot.answerCallbackQuery(query.id);
+          await ensureBirdSession();
           getIdentify().clearPending?.(user?.id);
           clearSession(chatId);
           try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
@@ -110,6 +119,7 @@ function handleBirdCallback(bot, query) {
         },
         bird_nearby: async () => {
           bot.answerCallbackQuery(query.id);
+          await ensureBirdSession();
           getIdentify().clearPending?.(user?.id);
           clearSession(chatId);
           try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
@@ -117,6 +127,7 @@ function handleBirdCallback(bot, query) {
         },
         bird_hotspot: async () => {
           bot.answerCallbackQuery(query.id);
+          await ensureBirdSession();
           getIdentify().clearPending?.(user?.id);
           clearSession(chatId);
           try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
@@ -124,6 +135,7 @@ function handleBirdCallback(bot, query) {
         },
         bird_species: async () => {
           bot.answerCallbackQuery(query.id);
+          await ensureBirdSession();
           getIdentify().clearPending?.(user?.id);
           clearSession(chatId);
           try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
@@ -137,12 +149,14 @@ function handleBirdCallback(bot, query) {
         },
         bird_back_main: async () => {
           bot.answerCallbackQuery(query.id);
+          endBirdSession(chat, birdSessionOpts);
           clearSession(chatId);
           try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
           return sendSightingsCategoryMenu(bot, chatId);
         },
         bird_logs: async () => {
           bot.answerCallbackQuery(query.id);
+          await ensureBirdSession();
           clearSession(chatId);
           try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
           return handleMyLogs(bot, chatId, user);
@@ -413,6 +427,7 @@ function handleBirdCallback(bot, query) {
       // ── Live Updates ──────────────────────────────────────────────────────
       if (cbData === 'bird_live_updates') {
         bot.answerCallbackQuery(query.id);
+        await ensureBirdSession();
         try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
         const sub = getLiveUpdate(chatId);
         if (sub) {
@@ -505,6 +520,7 @@ function handleBirdCallback(bot, query) {
         bot.answerCallbackQuery(query.id);
         try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
         stopLiveUpdate(chatId);
+        endBirdSession(chat, birdSessionOpts);
         return bot.sendMessage(chatId,
           '🔕 *Live Updates stopped.*',
           {
@@ -522,6 +538,7 @@ function handleBirdCallback(bot, query) {
       // ── Done (standalone fallback) ───────────────────────────────────────
       if (cbData === 'done') {
         bot.answerCallbackQuery(query.id);
+        endBirdSession(chat, birdSessionOpts);
         userStates.delete(chatId);
         clearSession(chatId);
         try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
@@ -552,9 +569,16 @@ function registerBirdMenu(bot, addSightingSessions) {
         if (addSightingSessions && addSightingSessions.has(chatId)) return;
 
         // Handle direct GPS location share (Nearby flow)
+        const msgContext = {
+          user: msg.from,
+          chat: msg.chat,
+          channelId: (msg.chat?.type || 'private') === 'private' ? '' : String(msg.sender_chat?.id ?? msg.chat?.id ?? ''),
+          channelName: (msg.chat?.type || 'private') === 'private' ? '' : String(msg.sender_chat?.title || msg.chat?.title || ''),
+        };
+
         if (msg.location) {
           logger.info('[birdMenu] message location received', { chatId });
-          return handleLocationMsg(bot, chatId, msg, { user: msg.from, chat: msg.chat });
+          return handleLocationMsg(bot, chatId, msg, msgContext);
         }
 
         const state = userStates.get(chatId);
@@ -570,8 +594,8 @@ function registerBirdMenu(bot, addSightingSessions) {
 
         if (!state) {
           logger.info('[birdMenu] universal fallback text location', { chatId, text });
-          userStates.set(chatId, { action: 'awaiting_region_sightings', context: { user: msg.from, chat: msg.chat } });
-          return handlePlaceSearch(bot, chatId, text, 'sightings', { user: msg.from, chat: msg.chat });
+          userStates.set(chatId, { action: 'awaiting_region_sightings', context: msgContext });
+          return handlePlaceSearch(bot, chatId, text, 'sightings', msgContext);
         }
 
         // Delete the user's own message and the bot prompt that preceded it so the chat stays clean.
@@ -593,7 +617,7 @@ function registerBirdMenu(bot, addSightingSessions) {
         }
 
         const action = state.action;
-        const context = state.context || { user: msg.from, chat: msg.chat };
+        const context = state.context || msgContext;
 
         if (action === 'awaiting_region_sightings') {
           userStates.delete(chatId);

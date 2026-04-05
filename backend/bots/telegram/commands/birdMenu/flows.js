@@ -6,7 +6,8 @@ const {
   esc, escHtml, getTimezoneForRegion, resolveTimezoneForRegion, getTzAbbr, nowInTz, fmtNaiveShort,
   getDatePreset, filterObservationsByDateRange, getPopularLocations,
 } = require('./helpers');
-const { userStates, observationsCache, lastPrompts, birdSessionMap } = require('./state');
+const { userStates, observationsCache, lastPrompts } = require('./state');
+const { getBirdSession }                         = require('./session');
 const { resolveRegionCode, bboxRadiusKm }        = require('./location');
 const {
   deleteMsg, sendPaginatedObservations, sendPaginatedLogs,
@@ -460,7 +461,9 @@ async function fetchAndSendSightings(bot, chatId, regionCode, originalInput, pag
   const regionDisplay3 = isCoord ? displayName : regionCode;
   sheetsService.logBirdQuery({
     user: context.user, chat: context.chat,
-    sessionId: birdSessionMap.get(chatId)?.sessionId || '',
+    sessionId: getBirdSession(context?.chat || chatId, { channelId: context?.channelId, chatType: context?.chat?.type })?.sessionId || '',
+    channelId: context?.channelId || '',
+    channelName: context?.channelName || '',
     command: 'Sightings', searchQuery: displayName, regionCode: regionDisplay3,
     totalSightings: observations.length,
     uniqueSpeciesCount: new Set(observations.map(o => o.speciesCode)).size,
@@ -561,7 +564,9 @@ async function fetchAndSendNotable(bot, chatId, regionCode, originalInput, page,
 
   sheetsService.logBirdQuery({
       user: context.user, chat: context.chat,
-      sessionId: birdSessionMap.get(chatId)?.sessionId || '',
+      sessionId: getBirdSession(context?.chat || chatId, { channelId: context?.channelId, chatType: context?.chat?.type })?.sessionId || '',
+      channelId: context?.channelId || '',
+      channelName: context?.channelName || '',
       command: 'Notable Sightings', searchQuery: displayName, regionCode: isCoordN ? displayName : regionCode,
       totalSightings: observations.length,
       uniqueSpeciesCount: new Set(observations.map(o => o.speciesCode)).size,
@@ -712,7 +717,9 @@ async function fetchNearbySightings(bot, chatId, latitude, longitude, dist, cont
 
       sheetsService.logBirdQuery({
           user: context.user, chat: context.chat,
-          sessionId: birdSessionMap.get(chatId)?.sessionId || '',
+          sessionId: getBirdSession(context?.chat || chatId, { channelId: context?.channelId, chatType: context?.chat?.type })?.sessionId || '',
+          channelId: context?.channelId || '',
+          channelName: context?.channelName || '',
           command: 'Nearby', searchQuery: `Nearby (${fmtDist(dist)})`, regionCode: nearbyRegion,
           totalSightings: observations.length,
           uniqueSpeciesCount: new Set(observations.map(o => o.speciesCode)).size,
@@ -994,7 +1001,9 @@ async function fetchSpeciesInLocation(bot, chatId, locationInput, speciesName, s
 
     sheetsService.logBirdQuery({
       user: context.user, chat: context.chat,
-      sessionId: birdSessionMap.get(chatId)?.sessionId || '',
+      sessionId: getBirdSession(context?.chat || chatId, { channelId: context?.channelId, chatType: context?.chat?.type })?.sessionId || '',
+      channelId: context?.channelId || '',
+      channelName: context?.channelName || '',
       command: 'Species', searchQuery: `${species.commonName} in ${locationInput}`, regionCode: isCoordS ? locationInput : regionCode,
       totalSightings: observations.length, uniqueSpeciesCount: 1,
       speciesList: species.commonName,

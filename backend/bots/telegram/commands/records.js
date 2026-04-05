@@ -46,17 +46,20 @@ async function ensureBotUsername(bot) {
 async function fetchUserRows(chatId) {
   const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
   if (!id) return [];
-  const rows = await sheetsService.getRows(id, `${SHEET_NAME}!A2:K5000`);
+  const rows = await sheetsService.getRows(id, `${SHEET_NAME}!A2:P5000`);
   const targetChatId = String(chatId);
   return rows.filter(r => String(r[1] || '').trim() === targetChatId);
 }
 
-/** Filter rows by search term (species name or date). */
+/** Filter rows by search term (species name, date, country, or sender). */
 function filterRows(allRows, term) {
   const q = term.toLowerCase().trim();
   if (!q) return allRows;
   return allRows.filter(r =>
-    (r[9] || '').toLowerCase().includes(q) || (r[6] || '').toLowerCase().includes(q)
+    String(r[14] || '').toLowerCase().includes(q) ||
+    String(r[10] || '').toLowerCase().includes(q) ||
+    String(r[13] || '').toLowerCase().includes(q) ||
+    String(r[7] || '').toLowerCase().includes(q)
   );
 }
 
@@ -95,11 +98,11 @@ function buildPageText(pageRows, page, totalPages, isGroup, searchTerm) {
   let text = header + '\n\n';
   pageRows.forEach((row, i) => {
     const num       = (page - 1) * PAGE_SIZE + i + 1;
-    const dateV     = row[6] || '—';
-    const timeV     = normalizeSgTimeLabel(row[7] || '—');
-    const country   = row[8] || '';
-    const species   = row[9] || '—';
-    const user      = isGroup ? (row[3] || '') : '';
+    const dateV     = String(row[10] || '').replace(/^'/, '') || '—';
+    const timeV     = normalizeSgTimeLabel(String(row[11] || '').replace(/^'/, '') || '—');
+    const country   = row[13] || '';
+    const species   = row[14] || '—';
+    const user      = isGroup ? (row[7] || row[5] || row[4] || '') : '';
     const globalIdx = (page - 1) * PAGE_SIZE + i;
     const deepLink = buildRecordDeepLink(globalIdx);
     const speciesText = escHtml(species);
@@ -222,7 +225,7 @@ module.exports = function registerRecords(bot) {
       const globalIdx = parseInt(parts[2]);
       const session   = sessions.get(chatId);
       const row       = session?.rows[globalIdx];
-      const fileId    = (row?.[10] || '').trim();
+      const fileId    = (row?.[15] || '').trim();
 
       if (!fileId) {
         return bot.answerCallbackQuery(query.id, { text: 'No saved result for this record.', show_alert: true });

@@ -88,6 +88,8 @@ const CALLBACKS = {
     const chatId = chat.id;
     const chatType = chat.type || 'private';
     const chatTitle = chat.title || null;
+    const channelId = chatType === 'private' ? '' : String(query.message?.sender_chat?.id ?? chatId);
+    const channelName = chatType === 'private' ? '' : String(query.message?.sender_chat?.title || chatTitle || '');
     const sender = chatTitle
       || (user?.username ? `@${user.username}` : [user?.first_name, user?.last_name].filter(Boolean).join(' '))
       || 'Unknown';
@@ -98,6 +100,8 @@ const CALLBACKS = {
         const latest = await sheetsService.getLatestSessionStatus({
           subBot: 'Animal Identification',
           chatId,
+          channelId,
+          channelName,
           sender,
           chatType,
         });
@@ -107,6 +111,8 @@ const CALLBACKS = {
           const started = await sheetsService.logSessionStart({
             subBot: 'Animal Identification',
             chatId,
+            channelId,
+            channelName,
             chatTitle,
             user,
             chatType,

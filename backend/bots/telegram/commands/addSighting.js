@@ -21,7 +21,7 @@
 const sheetsService                   = require('../../../database/googleSheets/services/googleSheetsService');
 const geminiService                   = require('../../animalIdentification/services/geminiService');
 const { verifyWithEBird, EBirdService } = require('../../birdSighting/services/ebirdService');
-const { birdSessionMap }              = require('./birdMenu/state');
+const { getBirdSession }              = require('./birdMenu/session');
 const axios                           = require('axios');
 const sharp                           = require('sharp');
 const logger                          = require('../../../src/utils/logger');
@@ -370,7 +370,9 @@ ${escHtml(result?.qualityIssue || result?.reason || 'Please try a clearer photo 
         await sheetsService.logBirdSightingCommand({
           user,
           chat,
-          sessionId: birdSessionMap.get(chatId)?.sessionId || '',
+          sessionId: getBirdSession(chat)?.sessionId || '',
+          channelId: (chat?.type || 'private') === 'private' ? '' : String(chat?.id ?? ''),
+          channelName: (chat?.type || 'private') === 'private' ? '' : String(chat?.title || ''),
           species,
           location,
           observationDate: date,

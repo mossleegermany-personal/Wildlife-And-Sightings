@@ -235,7 +235,7 @@ class GoogleSheetsService {
    * @param {{ user: object, chat: object, species: string, location: string,
    *            observationDate: string, count: number, obsType: string, notes: string }} data
    */
-  async logBirdSightingCommand({ user, chat, sessionId, species, location, observationDate, count, obsType, notes }) {
+  async logBirdSightingCommand({ user, chat, sessionId, channelId: explicitChannelId, channelName: explicitChannelName, species, location, observationDate, count, obsType, notes }) {
     const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     if (!id) { logger.warn('GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping Bird Sightings log'); return; }
 
@@ -262,8 +262,8 @@ class GoogleSheetsService {
     const isPrivate   = chatTypeRaw === 'private';
     const chatTypeFmt = chatTypeRaw.charAt(0).toUpperCase() + chatTypeRaw.slice(1);
     const chatIdStr   = chat?.id != null ? String(chat.id) : '';
-    const channelId   = isPrivate ? '' : chatIdStr;
-    const channelName = isPrivate ? '' : (chat?.title || '');
+    const channelId   = isPrivate ? '' : String(explicitChannelId ?? chatIdStr);
+    const channelName = isPrivate ? '' : String(explicitChannelName ?? (chat?.title || ''));
     const personName  = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
     const userName    = user?.username ? `@${user.username}` : '';
     const displayName = personName || (isPrivate ? 'Unknown' : '');
@@ -310,7 +310,7 @@ class GoogleSheetsService {
    *            regionCode: string, totalSightings: number,
    *            uniqueSpeciesCount: number, speciesList: string }} params
    */
-  async logBirdQuery({ user, chat, sessionId, command, searchQuery, regionCode, totalSightings, uniqueSpeciesCount, speciesList }) {
+  async logBirdQuery({ user, chat, sessionId, channelId: explicitChannelId, channelName: explicitChannelName, command, searchQuery, regionCode, totalSightings, uniqueSpeciesCount, speciesList }) {
     const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     if (!id) { logger.warn('GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping Bird Sightings log'); return; }
 
@@ -335,8 +335,8 @@ class GoogleSheetsService {
     const isPrivate   = chatTypeRaw === 'private';
     const chatTypeFmt = chatTypeRaw.charAt(0).toUpperCase() + chatTypeRaw.slice(1);
     const chatIdStr   = chat?.id != null ? String(chat.id) : '';
-    const channelId   = isPrivate ? '' : chatIdStr;
-    const channelName = isPrivate ? '' : (chat?.title || '');
+    const channelId   = isPrivate ? '' : String(explicitChannelId ?? chatIdStr);
+    const channelName = isPrivate ? '' : String(explicitChannelName ?? (chat?.title || ''));
     const personName  = [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim();
     const userName    = user?.username ? `@${user.username}` : '';
     const displayName = personName || (isPrivate ? 'Unknown' : '');
@@ -619,10 +619,12 @@ class GoogleSheetsService {
       : 'Private';
     const isPrivate = (data.chatType || '').toLowerCase() === 'private';
 
-    // Channel Id = the group/channel's Telegram ID (same as chatId for group chats).
-    // Channel Name = the group/channel title. Both blank for private chats.
-    const channelIdValue = isPrivate ? '' : (data.chatId != null ? String(data.chatId) : '');
-    const channelNameValue = isPrivate ? '' : (data.chatTitle || '');
+    // Channel Id / Channel Name should stay aligned with the specific group/channel context
+    // that started the session. For private chats both remain blank.
+    const channelIdValue = isPrivate
+      ? ''
+      : (data.channelId != null ? String(data.channelId) : (data.chatId != null ? String(data.chatId) : ''));
+    const channelNameValue = isPrivate ? '' : String(data.channelName || data.chatTitle || '');
 
     const startDt = data.startTime || new Date();
     const row = [
@@ -730,6 +732,8 @@ class GoogleSheetsService {
     const targetSubBot = normalize(data.subBot || 'Animal Identification');
     const targetSender = normalize(data.sender || '');
     const targetChatId = normalize(data.chatId != null ? String(data.chatId) : '');
+    const targetChannelId = normalize(data.channelId != null ? String(data.channelId) : '');
+    const targetChannelName = normalize(data.channelName || '');
     const targetChatType = normalize(
       data.chatType ? data.chatType.charAt(0).toUpperCase() + data.chatType.slice(1) : 'Private'
     );
@@ -742,12 +746,16 @@ class GoogleSheetsService {
         const row = rows[i] || [];
         const rowSubBot = normalize(row[1]);
         const rowChatId = normalize(row[5]);
+        const rowChannelId = normalize(row[6]);
+        const rowChannelName = normalize(row[7]);
         const rowSender = normalize(row[3]);
         const rowChatType = normalize(row[8]);  // I: Chat Type
 
         const chatIdMatches = !targetChatId || rowChatId === targetChatId;
+        const channelIdMatches = !targetChannelId || rowChannelId === targetChannelId;
+        const channelNameMatches = !targetChannelName || rowChannelName === targetChannelName;
 
-        if (rowSubBot === targetSubBot && chatIdMatches && rowSender === targetSender && rowChatType === targetChatType) {
+        if (rowSubBot === targetSubBot && chatIdMatches && channelIdMatches && channelNameMatches && rowSender === targetSender && rowChatType === targetChatType) {
           return {
             sn: Number.parseInt(row[0], 10) || null,
             sessionId: row[2] || '',

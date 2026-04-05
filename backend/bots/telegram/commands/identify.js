@@ -331,6 +331,8 @@ function buildSessionSender(chat, user) {
 async function ensureActiveSessionRecord(chat, user) {
   const chatType = chat?.type || 'private';
   const chatTitle = chat?.title || null;
+  const channelId = chatType === 'private' ? '' : (chat?.id != null ? String(chat.id) : '');
+  const channelName = chatType === 'private' ? '' : String(chatTitle || '');
   const sender = buildSessionSender(chat, user);
   const startTime = new Date();
   let sessionSn = null;
@@ -339,6 +341,8 @@ async function ensureActiveSessionRecord(chat, user) {
   const latest = await sheetsService.getLatestSessionStatus({
     subBot: 'Animal Identification',
     chatId: chat?.id,
+    channelId,
+    channelName,
     sender,
     chatType,
   });
@@ -350,6 +354,8 @@ async function ensureActiveSessionRecord(chat, user) {
     const started = await sheetsService.logSessionStart({
       subBot: 'Animal Identification',
       chatId: chat?.id,
+      channelId,
+      channelName,
       chatTitle,
       user,
       chatType,
@@ -367,6 +373,8 @@ async function hasActiveSessionBySheet(chat, user) {
     const latest = await sheetsService.getLatestSessionStatus({
       subBot: 'Animal Identification',
       chatId: chat?.id,
+      channelId: (chat?.type || 'private') === 'private' ? '' : (chat?.id != null ? String(chat.id) : ''),
+      channelName: (chat?.type || 'private') === 'private' ? '' : String(chat?.title || ''),
       sender: buildSessionSender(chat, user),
       chatType: chat?.type || 'private',
     });
@@ -719,6 +727,8 @@ module.exports = function registerIdentify(bot) {
           const latest = await sheetsService.getLatestSessionStatus({
             subBot: 'Animal Identification',
             chatId,
+            channelId: query.message.chat.type === 'private' ? '' : String(chatId),
+            channelName: query.message.chat.type === 'private' ? '' : String(query.message.chat.title || sessionStart?.chatTitle || ''),
             sender: sessionStart?.sender || buildSessionSender(query.message.chat, query.from),
             chatType: query.message.chat.type,
           });
