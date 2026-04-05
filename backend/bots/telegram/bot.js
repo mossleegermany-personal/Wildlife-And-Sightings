@@ -85,6 +85,52 @@ function createBot(app) {
     return _deleteMessage(...args).catch(() => null);
   };
 
+  // ── Allowed-chat filter ───────────────────────────────────────────────────
+  // ALLOWED_CHAT_IDS: comma-separated list of chat IDs the bot may respond in.
+  // Private chats (type === 'private') are always allowed.
+  // Leave empty / unset to allow all groups (default, backward-compatible).
+  const allowedChatIdsRaw = String(process.env.ALLOWED_CHAT_IDS || '').trim();
+  const allowedChatIds = allowedChatIdsRaw
+    ? new Set(allowedChatIdsRaw.split(',').map(s => s.trim()).filter(Boolean))
+    : null; // null = unrestricted
+
+  function isChatAllowed(chatId, chatType) {
+    if (!allowedChatIds) return true; // no restriction configured
+    if (chatType === 'private') return true;
+    return allowedChatIds.has(String(chatId));
+  }
+
+  // Patch message/callback dispatch to honour ALLOWED_CHAT_IDS.
+  const _on = bot.on.bind(bot);
+  bot.on = function patchedOn(event, listener) {
+    if (event === 'message' || event === 'callback_query' || event === 'inline_query') {
+      return _on(event, (update) => {
+        const chat = update?.chat || update?.message?.chat || null;
+        if (chat && !isChatAllowed(chat.id, chat.type)) {
+          logger.debug('[bot] Ignoring update from non-allowed chat', { chatId: chat.id, chatType: chat.type });
+          return;
+        }
+        return listener(update);
+      });
+    }
+    return _on(event, listener);
+  };
+
+  // bot.onText stores callbacks separately from bot.on, so patch it independently.
+  const _onText = bot.onText.bind(bot);
+  bot.onText = function patchedOnText(regexp, callback) {
+    return _onText(regexp, (msg, match) => {
+      const chat = msg?.chat || null;
+      if (chat && !isChatAllowed(chat.id, chat.type)) return;
+      return callback(msg, match);
+    });
+  };
+
+  if (allowedChatIds) {
+    logger.info('[bot] ALLOWED_CHAT_IDS configured — bot will only respond in:', [...allowedChatIds].join(', '));
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   // Register menu callbacks (inline buttons) — handles menu_identify, menu_sightings, etc.
   registerMainMenu(bot);
 

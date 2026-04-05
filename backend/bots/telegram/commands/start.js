@@ -2,6 +2,7 @@
 
 const { MAIN_MENU }  = require('../menu/mainMenu');
 const sheetsService  = require('../../../database/googleSheets/services/googleSheetsService');
+const { resolveChannelContext } = require('../utils/chatContext');
 const { clearEndedSession } = require('./identify');
 
 const SHEET_NAME = 'Animal Identification';
@@ -72,17 +73,19 @@ module.exports = function registerStart(bot) {
     clearEndedSession(msg.from?.id);
 
     const senderChat = msg.sender_chat || null;
-    const logChatId = senderChat?.id != null ? senderChat.id : chatId;
-    const logChatType = senderChat?.type || msg.chat?.type || 'private';
+    const channelContext = await resolveChannelContext(bot, msg.chat, senderChat).catch(() => ({
+      channelId: msg.chat?.type === 'private' ? '' : String(msg.chat?.id ?? ''),
+      channelName: getChannelName(msg.chat, msg.from, senderChat),
+    }));
 
     // Always log /start into "Telegram" sheet.
     sheetsService.logTelegramGroupStart({
-      chatId: logChatId,
-      channelId: msg.chat?.id != null ? msg.chat.id : '',
-      chatType: logChatType,
+      chatId,
+      channelId: channelContext.channelId,
+      chatType: msg.chat?.type || 'private',
       sender: getSenderLabel(msg.from, senderChat),
       displayName: getDisplayName(msg.from),
-      channelName: getChannelName(msg.chat, msg.from, senderChat),
+      channelName: channelContext.channelName || getChannelName(msg.chat, msg.from, senderChat),
     }).catch(() => {});
 
     if (param.startsWith('canvas_')) {

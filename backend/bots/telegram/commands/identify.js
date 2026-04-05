@@ -95,6 +95,7 @@ const { getSpeciesCode, getNearbySpeciesObservations, getEBirdSubspecificGroups,
 const { getGBIFNames, geocodeLocation, checkOccurrencesAtLocation, getGeographicRange, getGlobalOccurrenceCount, getSubspeciesOccurrencesByCountry } = require('../../animalIdentification/services/gbifService');
 const { getWikipediaInfo } = require('../../animalIdentification/services/wikipediaService');
 const { consumeIdentifyPromptMessage, setIdentifyPromptMessage, hasIdentifyPromptMessage, setSessionStart, getSessionStart, clearSessionStart, clearIdentifySession } = require('../menu/mainMenu');
+const { resolveChannelContext } = require('../utils/chatContext');
 const { ebird: ebirdSvc } = require('./birdMenu/services');
 const { getTimezoneForRegion, getTzAbbr, parseBreedingCode, parseAgeSex } = require('./birdMenu/helpers');
 const sheetsService = require('../../../database/googleSheets/services/googleSheetsService');
@@ -319,7 +320,8 @@ async function requestLocationAndQueue(bot, chatId, payload, user, chat) {
     inputFileId: payload.inputFileId,
     sessionId: payload.sessionId || sessionStart?.sessionId || '',
     chatType: chat?.type || 'private',
-    channelName: chat?.title || '',
+    channelId: payload.channelId || '',
+    channelName: payload.channelName || chat?.title || '',
   });
 }
 
@@ -328,11 +330,11 @@ function buildSessionSender(chat, user) {
     || 'Unknown';
 }
 
-async function ensureActiveSessionRecord(chat, user) {
+async function ensureActiveSessionRecord(chat, user, channelContext = {}) {
   const chatType = chat?.type || 'private';
   const chatTitle = chat?.title || null;
-  const channelId = chatType === 'private' ? '' : (chat?.id != null ? String(chat.id) : '');
-  const channelName = chatType === 'private' ? '' : String(chatTitle || '');
+  const channelId = chatType === 'private' ? '' : String(channelContext.channelId ?? (chat?.id != null ? String(chat.id) : ''));
+  const channelName = chatType === 'private' ? '' : String(channelContext.channelName ?? chatTitle ?? '');
   const sender = buildSessionSender(chat, user);
   const startTime = new Date();
   let sessionSn = null;
@@ -368,13 +370,13 @@ async function ensureActiveSessionRecord(chat, user) {
   return { chatType, chatTitle, sender, startTime, sessionSn, sessionId };
 }
 
-async function hasActiveSessionBySheet(chat, user) {
+async function hasActiveSessionBySheet(chat, user, channelContext = {}) {
   try {
     const latest = await sheetsService.getLatestSessionStatus({
       subBot: 'Animal Identification',
       chatId: chat?.id,
-      channelId: (chat?.type || 'private') === 'private' ? '' : (chat?.id != null ? String(chat.id) : ''),
-      channelName: (chat?.type || 'private') === 'private' ? '' : String(chat?.title || ''),
+      channelId: (chat?.type || 'private') === 'private' ? '' : String(channelContext.channelId ?? (chat?.id != null ? String(chat.id) : '')),
+      channelName: (chat?.type || 'private') === 'private' ? '' : String(channelContext.channelName ?? chat?.title ?? ''),
       sender: buildSessionSender(chat, user),
       chatType: chat?.type || 'private',
     });
@@ -471,11 +473,15 @@ module.exports = function registerIdentify(bot) {
         // Use the session already stored in memory when the button was clicked.
         // Calling ensureActiveSessionRecord here can race with the Sheets write from
         // menu_identify_new and create a duplicate session row.
+        const channelContext = await resolveChannelContext(bot, msg.chat, msg.sender_chat || null).catch(() => ({
+          channelId: msg.chat?.type === 'private' ? '' : String(msg.chat?.id ?? ''),
+          channelName: msg.chat?.type === 'private' ? '' : String(msg.chat?.title || ''),
+        }));
         const storedSession = getSessionStart(userId);
         let sessionId = storedSession?.sessionId || '';
         if (!sessionId) {
           try {
-            const sessionState = await ensureActiveSessionRecord(msg.chat, msg.from);
+            const sessionState = await ensureActiveSessionRecord(msg.chat, msg.from, channelContext);
             sessionId = sessionState?.sessionId || '';
           } catch { /* non-blocking */ }
         }
@@ -493,6 +499,8 @@ module.exports = function registerIdentify(bot) {
             isLowLight: nightLow.isLowLight,
             visualQuestion: (msg.caption || '').trim(),
             sessionId,
+            channelId: channelContext.channelId,
+            channelName: channelContext.channelName,
           },
           msg.from,
           msg.chat
@@ -577,11 +585,15 @@ module.exports = function registerIdentify(bot) {
         // ──────────────────────────────────────────────────────────────────
 
         // Use the session already stored in memory when the button was clicked.
+        const channelContext = await resolveChannelContext(bot, msg.chat, msg.sender_chat || null).catch(() => ({
+          channelId: msg.chat?.type === 'private' ? '' : String(msg.chat?.id ?? ''),
+          channelName: msg.chat?.type === 'private' ? '' : String(msg.chat?.title || ''),
+        }));
         const storedSession = getSessionStart(userId);
         let sessionId = storedSession?.sessionId || '';
         if (!sessionId) {
           try {
-            const sessionState = await ensureActiveSessionRecord(msg.chat, msg.from);
+            const sessionState = await ensureActiveSessionRecord(msg.chat, msg.from, channelContext);
             sessionId = sessionState?.sessionId || '';
           } catch { /* non-blocking */ }
         }
@@ -599,6 +611,8 @@ module.exports = function registerIdentify(bot) {
             isLowLight: nightLow.isLowLight,
             visualQuestion: (msg.caption || '').trim(),
             sessionId,
+            channelId: channelContext.channelId,
+            channelName: channelContext.channelName,
           },
           msg.from,
           msg.chat
@@ -701,7 +715,11 @@ module.exports = function registerIdentify(bot) {
 
       let sessionState = null;
       try {
-        sessionState = await ensureActiveSessionRecord(query.message.chat, query.from);
+        const channelContext = await resolveChannelContext(bot, query.message.chat, query.message?.sender_chat || null).catch(() => ({
+          channelId: query.message.chat.type === 'private' ? '' : String(chatId),
+          channelName: query.message.chat.type === 'private' ? '' : String(query.message.chat.title || ''),
+        }));
+        sessionState = await ensureActiveSessionRecord(query.message.chat, query.from, channelContext);
       } catch {
         // Non-blocking: continue flow should still work if Sheets is unavailable.
       }
@@ -737,11 +755,15 @@ module.exports = function registerIdentify(bot) {
 
       if (!sessionSn) {
         try {
+          const channelContext = await resolveChannelContext(bot, query.message.chat, query.message?.sender_chat || null).catch(() => ({
+            channelId: query.message.chat.type === 'private' ? '' : String(chatId),
+            channelName: query.message.chat.type === 'private' ? '' : String(query.message.chat.title || sessionStart?.chatTitle || ''),
+          }));
           const latest = await sheetsService.getLatestSessionStatus({
             subBot: 'Animal Identification',
             chatId,
-            channelId: query.message.chat.type === 'private' ? '' : String(chatId),
-            channelName: query.message.chat.type === 'private' ? '' : String(query.message.chat.title || sessionStart?.chatTitle || ''),
+            channelId: channelContext.channelId,
+            channelName: channelContext.channelName || String(query.message.chat.title || sessionStart?.chatTitle || ''),
             sender: sessionStart?.sender || buildSessionSender(query.message.chat, query.from),
             chatType: query.message.chat.type,
           });

@@ -22,6 +22,7 @@ const sheetsService                   = require('../../../database/googleSheets/
 const geminiService                   = require('../../animalIdentification/services/geminiService');
 const { verifyWithEBird, EBirdService } = require('../../birdSighting/services/ebirdService');
 const { getBirdSession }              = require('./birdMenu/session');
+const { resolveChannelContext }       = require('../utils/chatContext');
 const axios                           = require('axios');
 const sharp                           = require('sharp');
 const logger                          = require('../../../src/utils/logger');
@@ -367,12 +368,16 @@ ${escHtml(result?.qualityIssue || result?.reason || 'Please try a clearer photo 
 
       // Save to Google Sheets — Bird Sightings sheet
       try {
+        const channelContext = await resolveChannelContext(bot, chat, null).catch(() => ({
+          channelId: (chat?.type || 'private') === 'private' ? '' : String(chat?.id ?? ''),
+          channelName: (chat?.type || 'private') === 'private' ? '' : String(chat?.title || ''),
+        }));
         await sheetsService.logBirdSightingCommand({
           user,
           chat,
-          sessionId: getBirdSession(chat)?.sessionId || '',
-          channelId: (chat?.type || 'private') === 'private' ? '' : String(chat?.id ?? ''),
-          channelName: (chat?.type || 'private') === 'private' ? '' : String(chat?.title || ''),
+          sessionId: getBirdSession(chat, { channelId: channelContext.channelId, chatType: chat?.type })?.sessionId || '',
+          channelId: channelContext.channelId,
+          channelName: channelContext.channelName,
           species,
           location,
           observationDate: date,

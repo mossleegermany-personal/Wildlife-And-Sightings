@@ -13,6 +13,7 @@
  */
 
 const logger = require('../../../../src/utils/logger');
+const { resolveChannelContext } = require('../../utils/chatContext');
 const { ebird, sheetsService } = require('./services');
 const { ITEMS_PER_PAGE } = require('./constants');
 const { esc } = require('./helpers');
@@ -82,9 +83,13 @@ function handleBirdCallback(bot, query) {
       const chatId  = query.message?.chat?.id;
       const user    = query.from;
       const chat    = query.message?.chat;
+      const channelContext = await resolveChannelContext(bot, chat, query.message?.sender_chat || null).catch(() => ({
+        channelId: (chat?.type || 'private') === 'private' ? '' : String(chatId ?? ''),
+        channelName: (chat?.type || 'private') === 'private' ? '' : String(chat?.title || ''),
+      }));
       const birdSessionOpts = {
-        channelId: (chat?.type || 'private') === 'private' ? '' : String(query.message?.sender_chat?.id ?? chatId ?? ''),
-        channelName: (chat?.type || 'private') === 'private' ? '' : String(query.message?.sender_chat?.title || chat?.title || ''),
+        channelId: channelContext.channelId,
+        channelName: channelContext.channelName,
       };
       const context = { user, chat, channelId: birdSessionOpts.channelId, channelName: birdSessionOpts.channelName };
       const senderLabel = (user?.username ? `@${user.username}` : [user?.first_name, user?.last_name].filter(Boolean).join(' ')) || 'Unknown';
@@ -721,11 +726,15 @@ function registerBirdMenu(bot, addSightingSessions) {
         if (addSightingSessions && addSightingSessions.has(chatId)) return;
 
         // Handle direct GPS location share (Nearby flow)
+        const resolvedChannelContext = await resolveChannelContext(bot, msg.chat, msg.sender_chat || null).catch(() => ({
+          channelId: (msg.chat?.type || 'private') === 'private' ? '' : String(msg.chat?.id ?? ''),
+          channelName: (msg.chat?.type || 'private') === 'private' ? '' : String(msg.chat?.title || ''),
+        }));
         const msgContext = {
           user: msg.from,
           chat: msg.chat,
-          channelId: (msg.chat?.type || 'private') === 'private' ? '' : String(msg.sender_chat?.id ?? msg.chat?.id ?? ''),
-          channelName: (msg.chat?.type || 'private') === 'private' ? '' : String(msg.sender_chat?.title || msg.chat?.title || ''),
+          channelId: resolvedChannelContext.channelId,
+          channelName: resolvedChannelContext.channelName,
         };
         const senderLabel = (msg.from?.username ? `@${msg.from.username}` : [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ')) || 'Unknown';
         const updateLiveUpdateSheetStatus = (sub, status) => {

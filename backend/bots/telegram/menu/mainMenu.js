@@ -15,6 +15,7 @@
 const identifyPromptMessages = new Map();
 const sheetsService = require('../../../database/googleSheets/services/googleSheetsService');
 const logger = require('../../../src/utils/logger');
+const { resolveChannelContext } = require('../utils/chatContext');
 const { startAddSightingSession }  = require('../commands/addSighting');
 const { sendSightingsCategoryMenu, sendEbirdSubmenu } = require('../commands/birdMenu/ui');
 
@@ -88,8 +89,12 @@ const CALLBACKS = {
     const chatId = chat.id;
     const chatType = chat.type || 'private';
     const chatTitle = chat.title || null;
-    const channelId = chatType === 'private' ? '' : String(query.message?.sender_chat?.id ?? chatId);
-    const channelName = chatType === 'private' ? '' : String(query.message?.sender_chat?.title || chatTitle || '');
+    const channelContext = await resolveChannelContext(bot, chat, query.message?.sender_chat || null).catch(() => ({
+      channelId: chatType === 'private' ? '' : String(chatId),
+      channelName: chatType === 'private' ? '' : String(chatTitle || ''),
+    }));
+    const channelId = channelContext.channelId;
+    const channelName = channelContext.channelName;
     const sender = chatTitle
       || (user?.username ? `@${user.username}` : [user?.first_name, user?.last_name].filter(Boolean).join(' '))
       || 'Unknown';
