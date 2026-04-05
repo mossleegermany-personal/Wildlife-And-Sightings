@@ -308,9 +308,10 @@ class GoogleSheetsService {
    *
    * @param {{ user: object, chat: object, command: string, searchQuery: string,
    *            regionCode: string, totalSightings: number,
-   *            uniqueSpeciesCount: number, speciesList: string }} params
+   *            uniqueSpeciesCount: number, speciesList: string,
+   *            location?: string, notes?: string }} params
    */
-  async logBirdQuery({ user, chat, sessionId, channelId: explicitChannelId, channelName: explicitChannelName, command, searchQuery, regionCode, totalSightings, uniqueSpeciesCount, speciesList }) {
+  async logBirdQuery({ user, chat, sessionId, channelId: explicitChannelId, channelName: explicitChannelName, command, searchQuery, regionCode, totalSightings, uniqueSpeciesCount, speciesList, location, notes }) {
     const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
     if (!id) { logger.warn('GOOGLE_SHEETS_SPREADSHEET_ID not set — skipping Bird Sightings log'); return; }
 
@@ -342,6 +343,13 @@ class GoogleSheetsService {
     const displayName = personName || (isPrivate ? 'Unknown' : '');
     const sender      = user?.username ? `@${user.username}` : (personName || 'Unknown');
 
+    const totalSightingsValue = (totalSightings === undefined || totalSightings === null || totalSightings === '')
+      ? ''
+      : String(totalSightings);
+    const uniqueSpeciesCountValue = (uniqueSpeciesCount === undefined || uniqueSpeciesCount === null || uniqueSpeciesCount === '')
+      ? ''
+      : String(uniqueSpeciesCount);
+
     const row = [
       sn,                                // A [0]:  S/N
       date,                              // B [1]:  Date (dd/mm/yyyy)
@@ -356,15 +364,72 @@ class GoogleSheetsService {
       chatTypeFmt,                       // K [10]: Chat Type
       command || '',                     // L [11]: Command
       searchQuery || '',                 // M [12]: Search Query
-      '',                                // N [13]: Location (blank — region stored in Country)
+      location || '',                    // N [13]: Location
       regionCode || '',                  // O [14]: Country (region/country code e.g. SG)
-      String(totalSightings || 0),       // P [15]: Total Sightings
-      String(uniqueSpeciesCount || 0),   // Q [16]: Count (Unique Species Count)
+      totalSightingsValue,               // P [15]: Total Sightings
+      uniqueSpeciesCountValue,           // Q [16]: Count (Unique Species Count)
       speciesList || '',                 // R [17]: Species List
-      '', '', '', '', '',                // S–W [18–22]: personal sighting fields (blank)
+      '', '', '', '', notes || '',       // S–W [18–22]: personal sighting fields / Notes
     ];
 
     return this.appendRow(id, 'Bird Sightings!A:W', row);
+  }
+
+  formatLiveUpdateNote(status, at = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Singapore',
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    }).formatToParts(at);
+    const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+    return `Live Updates [${String(status || 'Active').trim()}] [${map.day}/${map.month}/${map.year} ${map.hour}:${map.minute}:${map.second} hrs]`;
+  }
+
+  async updateLatestLiveUpdateStatus({ chatId, channelId, channelName, sender, command, searchQuery, location, status, updatedAt = new Date() } = {}) {
+    const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    if (!id) return false;
+
+    const norm = (v) => String(v || '').trim().toLowerCase();
+    const targetChatId = norm(chatId);
+    const targetChannelId = norm(channelId);
+    const targetChannelName = norm(channelName);
+    const targetSender = norm(sender);
+    const targetCommand = norm(command);
+    const targetSearchQuery = norm(searchQuery);
+    const targetLocation = norm(location);
+
+    try {
+      const rows = await this.getRows(id, 'Bird Sightings!A:W');
+      if (!rows || rows.length <= 1) return false;
+
+      for (let i = rows.length - 1; i >= 1; i -= 1) {
+        const r = rows[i] || [];
+        const rowNotes = norm(r[22]);
+        if (!rowNotes.startsWith('live updates')) continue;
+        if (targetChatId && norm(r[3]) !== targetChatId) continue;
+        if (targetChannelId && norm(r[4]) !== targetChannelId) continue;
+        if (targetChannelName && norm(r[8]) !== targetChannelName) continue;
+        if (targetSender && norm(r[9]) !== targetSender) continue;
+        if (targetCommand && norm(r[11]) !== targetCommand) continue;
+        if (targetSearchQuery && norm(r[12]) !== targetSearchQuery) continue;
+        if (targetLocation && norm(r[13]) !== targetLocation) continue;
+
+        const sheetRow = i + 1;
+        const sheets = this._getSheets();
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: id,
+          range: `Bird Sightings!W${sheetRow}`,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [[this.formatLiveUpdateNote(status, updatedAt)]] },
+        });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      logger.warn('updateLatestLiveUpdateStatus failed', { error: err.message });
+      return false;
+    }
   }
 
   /**
@@ -391,6 +456,74 @@ class GoogleSheetsService {
         }));
     } catch (err) {
       logger.warn('getPersonalBirdSightings failed', { error: err.message });
+      return [];
+    }
+  }
+
+  /**
+   * Get recent live update setups logged in the Bird Sightings sheet.
+   * Filters by the same chat/channel context and sender, then returns a de-duplicated
+   * newest-first list that can be shown in the Live Updates menu.
+   *
+   * @param {{ chatId?: string|number, channelId?: string|number, channelName?: string, sender?: string, limit?: number }} params
+   * @returns {Promise<Array<{type:string, command:string, searchQuery:string, locationInput:string, regionCode:string, speciesName:string, date:string, time:string}>>}
+   */
+  async getRecentLiveUpdates({ chatId, channelId, channelName, sender, limit = 5 } = {}) {
+    const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    if (!id) return [];
+
+    const norm = (v) => String(v || '').trim().toLowerCase();
+    const targetChatId = norm(chatId);
+    const targetChannelId = norm(channelId);
+    const targetChannelName = norm(channelName);
+    const targetSender = norm(sender);
+
+    try {
+      const rows = await this.getRows(id, 'Bird Sightings!A2:W5000');
+      const results = [];
+      const seen = new Set();
+
+      for (let i = rows.length - 1; i >= 0 && results.length < limit; i -= 1) {
+        const r = rows[i] || [];
+        const rawNotes = String(r[22] || '').trim();
+        if (!norm(rawNotes).startsWith('live updates')) continue;
+        if (targetChatId && norm(r[3]) !== targetChatId) continue;
+        if (targetChannelId && norm(r[4]) !== targetChannelId) continue;
+        if (targetChannelName && norm(r[8]) !== targetChannelName) continue;
+        if (targetSender && norm(r[9]) !== targetSender) continue;
+
+        const command = String(r[11] || '').trim();
+        const type = command === 'Notable Sightings'
+          ? 'notable'
+          : command === 'Species'
+            ? 'species'
+            : 'sightings';
+        const searchQuery = String(r[12] || '').trim();
+        const locationInput = String(r[13] || searchQuery || '').trim();
+        const regionCode = String(r[14] || '').trim();
+        const speciesName = String(r[17] || '').trim();
+        const key = `${type}|${searchQuery}|${locationInput}|${regionCode}|${speciesName}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        const statusMatch = rawNotes.match(/^Live Updates \[([^\]]+)\]/i);
+        results.push({
+          type,
+          command,
+          searchQuery,
+          locationInput,
+          regionCode,
+          speciesName,
+          date: String(r[1] || '').replace(/^'/, ''),
+          time: String(r[2] || '').replace(/^'/, ''),
+          notes: rawNotes,
+          status: statusMatch ? statusMatch[1] : '',
+        });
+      }
+
+      return results;
+    } catch (err) {
+      logger.warn('getRecentLiveUpdates failed', { error: err.message });
       return [];
     }
   }

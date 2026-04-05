@@ -13,12 +13,12 @@
  */
 
 const logger = require('../../../../src/utils/logger');
-const { ebird } = require('./services');
+const { ebird, sheetsService } = require('./services');
 const { ITEMS_PER_PAGE } = require('./constants');
 const { esc } = require('./helpers');
 const { toRegionCode, resolveRegionCode } = require('./location');
 const { startLiveUpdate, stopLiveUpdate, getLiveUpdate } = require('./liveUpdates');
-const { ensureActiveBirdSession, endBirdSession } = require('./session');
+const { ensureActiveBirdSession, endBirdSession, getBirdSession } = require('./session');
 const { userStates, observationsCache, lastPrompts } = require('./state');
 const {
   deleteMsg,
@@ -87,8 +87,29 @@ function handleBirdCallback(bot, query) {
         channelName: (chat?.type || 'private') === 'private' ? '' : String(query.message?.sender_chat?.title || chat?.title || ''),
       };
       const context = { user, chat, channelId: birdSessionOpts.channelId, channelName: birdSessionOpts.channelName };
+      const senderLabel = (user?.username ? `@${user.username}` : [user?.first_name, user?.last_name].filter(Boolean).join(' ')) || 'Unknown';
       const ensureBirdSession = () => ensureActiveBirdSession(chat, user, birdSessionOpts)
         .catch(err => logger.warn('[birdMenu] session init failed', { error: err.message }));
+      const updateLiveUpdateSheetStatus = (sub, status) => {
+        if (!sub) return Promise.resolve(false);
+        const command = sub.type === 'notable' ? 'Notable Sightings' : sub.type === 'species' ? 'Species' : 'Sightings';
+        const searchQuery = sub.type === 'species'
+          ? (sub.species?.commonName ? `${sub.species.commonName} in ${sub.locationInput || ''}`.trim() : (sub.locationInput || ''))
+          : (sub.locationInput || '');
+        return sheetsService.updateLatestLiveUpdateStatus({
+          chatId,
+          channelId: birdSessionOpts.channelId,
+          channelName: birdSessionOpts.channelName,
+          sender: senderLabel,
+          command,
+          searchQuery,
+          location: sub.locationInput || '',
+          status,
+        }).catch(err => {
+          logger.warn('[birdMenu] live update status sync failed', { status, error: err.message });
+          return false;
+        });
+      };
 
       if (!chatId) {
         logger.warn('[birdMenu] callback_query missing message/chat', { cbData });
@@ -447,6 +468,61 @@ function handleBirdCallback(bot, query) {
             }
           );
         }
+
+        const senderLabel = (user?.username ? `@${user.username}` : [user?.first_name, user?.last_name].filter(Boolean).join(' ')) || 'Unknown';
+        const savedLiveUpdates = await sheetsService.getRecentLiveUpdates({
+          chatId,
+          channelId: birdSessionOpts.channelId,
+          channelName: birdSessionOpts.channelName,
+          sender: senderLabel,
+          limit: 5,
+        }).catch(() => []);
+
+        const baseButtons = [
+          [{ text: '🔍 Sightings', callback_data: 'live_type_sightings' }, { text: '⭐ Notable', callback_data: 'live_type_notable' }],
+          [{ text: '🦆 Species', callback_data: 'live_type_species' }],
+          [{ text: '⬅️ Back', callback_data: 'menu_ebird' }],
+        ];
+
+        if (savedLiveUpdates.length > 0) {
+          const prev = userStates.get(chatId) || {};
+          userStates.set(chatId, { ...prev, liveSavedUpdates: savedLiveUpdates });
+
+          const savedLines = savedLiveUpdates.map((item, idx) => {
+            const label = item.command || (item.type === 'species' ? 'Species' : item.type === 'notable' ? 'Notable Sightings' : 'Sightings');
+            const target = item.type === 'species'
+              ? `${item.speciesName || item.searchQuery} — ${item.locationInput || item.regionCode}`
+              : (item.locationInput || item.searchQuery || item.regionCode);
+            const statusTag = item.status ? ` [${item.status}]` : '';
+            return `• ${idx + 1}. *${esc(label)}* — ${esc(target)}${esc(statusTag)}`;
+          }).join('\n');
+
+          const savedButtons = savedLiveUpdates.map((item, idx) => {
+            const target = item.type === 'species'
+              ? `${item.speciesName || 'Species'} — ${item.locationInput || item.regionCode || ''}`
+              : `${item.type === 'notable' ? 'Notable' : 'Sightings'} — ${item.locationInput || item.searchQuery || item.regionCode || ''}`;
+            const text = `♻️ ${target}`;
+            return [{ text: text.length > 40 ? `${text.slice(0, 37)}...` : text, callback_data: `live_restore_${idx}` }];
+          });
+
+          return bot.sendMessage(chatId,
+            '🔔 *Live Updates*\n\nGet notified when new bird sightings are posted to eBird.\n\n' +
+            '• 🔍 *Sightings* — any recent observations in a location\n' +
+            '• ⭐ *Notable* — rare or unusual birds only\n' +
+            '• 🦆 *Species* — a specific species in a location\n\n' +
+            '*Saved Live Updates*\n' + savedLines + '\n\nTap one to restore it or choose a new type:',
+            {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  ...savedButtons,
+                  ...baseButtons,
+                ],
+              },
+            }
+          );
+        }
+
         return bot.sendMessage(chatId,
           '🔔 *Live Updates*\n\nGet notified when new bird sightings are posted to eBird.\n\n' +
           '• 🔍 *Sightings* — any recent observations in a location\n' +
@@ -456,11 +532,7 @@ function handleBirdCallback(bot, query) {
           {
             parse_mode: 'Markdown',
             reply_markup: {
-              inline_keyboard: [
-                [{ text: '🔍 Sightings', callback_data: 'live_type_sightings' }, { text: '⭐ Notable', callback_data: 'live_type_notable' }],
-                [{ text: '🦆 Species', callback_data: 'live_type_species' }],
-                [{ text: '⬅️ Back', callback_data: 'menu_ebird' }],
-              ],
+              inline_keyboard: baseButtons,
             },
           }
         );
@@ -482,6 +554,84 @@ function handleBirdCallback(bot, query) {
             },
           }
         );
+      }
+
+      if (cbData.startsWith('live_restore_')) {
+        bot.answerCallbackQuery(query.id);
+        const idx = parseInt(cbData.replace('live_restore_', ''), 10);
+        const saved = userStates.get(chatId)?.liveSavedUpdates || [];
+        const item = Number.isInteger(idx) ? saved[idx] : null;
+        if (!item) {
+          return bot.answerCallbackQuery(query.id, { text: 'Saved live update expired. Please open Live Updates again.', show_alert: true }).catch(() => {});
+        }
+
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        const targetLabel = item.type === 'species'
+          ? `${item.speciesName || item.searchQuery} in ${item.locationInput || item.regionCode}`
+          : (item.locationInput || item.searchQuery || item.regionCode);
+        const _st = await bot.sendMessage(chatId, `🔄 Restoring live updates for *${esc(targetLabel)}*...`, { parse_mode: 'Markdown' }).catch(() => null);
+
+        try {
+          await ensureBirdSession();
+          const existingSub = getLiveUpdate(chatId);
+          await updateLiveUpdateSheetStatus(existingSub, 'Stopped');
+          const restoredRegionCode = item.regionCode || await resolveRegionCode(item.locationInput || item.searchQuery || '');
+          let species = null;
+          if (item.type === 'species') {
+            const matches = await ebird.searchSpeciesByName(item.speciesName || item.searchQuery).catch(() => []);
+            if (!matches || matches.length === 0) throw new Error('Species not found');
+            const sp = matches[0];
+            species = { code: sp.speciesCode, commonName: sp.comName, scientificName: sp.sciName };
+          }
+
+          await startLiveUpdate(bot, chatId, item.type, item.locationInput || item.searchQuery || restoredRegionCode, restoredRegionCode, species);
+          const updated = await sheetsService.updateLatestLiveUpdateStatus({
+            chatId,
+            channelId: birdSessionOpts.channelId,
+            channelName: birdSessionOpts.channelName,
+            sender: senderLabel,
+            command: item.command,
+            searchQuery: item.searchQuery,
+            location: item.locationInput,
+            status: 'Active',
+          }).catch(() => false);
+          if (!updated) {
+            await sheetsService.logBirdQuery({
+              user: context.user,
+              chat: context.chat,
+              sessionId: getBirdSession(context?.chat || chatId, { channelId: context?.channelId, chatType: context?.chat?.type })?.sessionId || '',
+              channelId: context?.channelId || '',
+              channelName: context?.channelName || '',
+              command: item.command,
+              searchQuery: item.searchQuery,
+              location: item.locationInput,
+              regionCode: restoredRegionCode,
+              totalSightings: '',
+              uniqueSpeciesCount: '',
+              speciesList: '',
+              notes: sheetsService.formatLiveUpdateNote('Active'),
+            }).catch(err => logger.warn('Sheets log failed', { error: err.message }));
+          }
+          await deleteMsg(bot, chatId, _st?.message_id);
+          const typeLabel = item.type === 'notable' ? '⭐ Notable'
+            : item.type === 'species' ? `🦆 ${species?.commonName || item.speciesName || 'Species'}`
+            : '🔍 Sightings';
+          return bot.sendMessage(chatId,
+            `✅ *Live Updates Active!*\n\n📡 Tracking: *${esc(typeLabel)}*\n📍 Location: *${esc(item.locationInput || item.searchQuery || restoredRegionCode)}*\n\nYou'll be notified of new sightings every 10 seconds.`,
+            {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🔕 Stop', callback_data: 'live_stop' }, { text: '🔄 Change', callback_data: 'live_setup' }],
+                  [{ text: '⬅️ Back to eBird', callback_data: 'menu_ebird' }, { text: '✅ Done', callback_data: 'done' }],
+                ],
+              },
+            }
+          );
+        } catch (err) {
+          await deleteMsg(bot, chatId, _st?.message_id);
+          return bot.sendMessage(chatId, '❌ Could not restore that saved live update. Please set it up again.', { parse_mode: 'Markdown' });
+        }
       }
 
       if (cbData === 'live_type_sightings' || cbData === 'live_type_notable') {
@@ -518,8 +668,10 @@ function handleBirdCallback(bot, query) {
 
       if (cbData === 'live_stop') {
         bot.answerCallbackQuery(query.id);
+        const activeSub = getLiveUpdate(chatId);
         try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
         stopLiveUpdate(chatId);
+        await updateLiveUpdateSheetStatus(activeSub, 'Stopped');
         endBirdSession(chat, birdSessionOpts);
         return bot.sendMessage(chatId,
           '🔕 *Live Updates stopped.*',
@@ -732,7 +884,24 @@ function registerBirdMenu(bot, addSightingSessions) {
           const _st = await bot.sendMessage(chatId, `🔍 Setting up live updates for *${esc(text)}*...`, { parse_mode: 'Markdown' });
           try {
             const regionCode = await resolveRegionCode(text);
+            const existingSub = getLiveUpdate(chatId);
+            await updateLiveUpdateSheetStatus(existingSub, 'Stopped');
             await startLiveUpdate(bot, chatId, liveType, text, regionCode, null);
+            sheetsService.logBirdQuery({
+              user: context.user,
+              chat: context.chat,
+              sessionId: getBirdSession(context?.chat || chatId, { channelId: context?.channelId, chatType: context?.chat?.type })?.sessionId || '',
+              channelId: context?.channelId || '',
+              channelName: context?.channelName || '',
+              command: liveType === 'notable' ? 'Notable Sightings' : 'Sightings',
+              searchQuery: text,
+              location: text,
+              regionCode,
+              totalSightings: '',
+              uniqueSpeciesCount: '',
+              speciesList: '',
+              notes: sheetsService.formatLiveUpdateNote('Active'),
+            }).catch(err => logger.warn('Sheets log failed', { error: err.message }));
             await deleteMsg(bot, chatId, _st?.message_id);
             const typeLabel = liveType === 'notable' ? '⭐ Notable' : '🔍 Sightings';
             await bot.sendMessage(chatId,
@@ -785,7 +954,24 @@ function registerBirdMenu(bot, addSightingSessions) {
             const sp       = matches[0];
             const species  = { code: sp.speciesCode, commonName: sp.comName, scientificName: sp.sciName };
             const regionCode = await resolveRegionCode(locationInput);
+            const existingSub = getLiveUpdate(chatId);
+            await updateLiveUpdateSheetStatus(existingSub, 'Stopped');
             await startLiveUpdate(bot, chatId, 'species', locationInput, regionCode, species);
+            sheetsService.logBirdQuery({
+              user: context.user,
+              chat: context.chat,
+              sessionId: getBirdSession(context?.chat || chatId, { channelId: context?.channelId, chatType: context?.chat?.type })?.sessionId || '',
+              channelId: context?.channelId || '',
+              channelName: context?.channelName || '',
+              command: 'Species',
+              searchQuery: `${sp.comName} in ${locationInput}`,
+              location: locationInput,
+              regionCode,
+              totalSightings: '',
+              uniqueSpeciesCount: '',
+              speciesList: '',
+              notes: sheetsService.formatLiveUpdateNote('Active'),
+            }).catch(err => logger.warn('Sheets log failed', { error: err.message }));
             await deleteMsg(bot, chatId, _st?.message_id);
             await bot.sendMessage(chatId,
               `✅ *Live Updates Active!*\n\n📡 Tracking: *🦆 ${esc(sp.comName)}*\n📍 Location: *${esc(locationInput)}*\n\nYou'll be notified of new sightings every 10 seconds.`,
