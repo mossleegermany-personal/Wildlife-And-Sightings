@@ -6,19 +6,11 @@ const SIGHTINGS_CATEGORY_MENU = {
   reply_markup: {
     inline_keyboard: [
       [
-        { text: '🔍 Sightings', callback_data: 'bird_sightings' },
-        { text: '⭐ Notable',   callback_data: 'bird_notable'    },
+        { text: '🐦 eBird',   callback_data: 'menu_ebird' },
+        { text: '📓 My Logs', callback_data: 'bird_logs'  },
       ],
       [
-        { text: '📍 Nearby',   callback_data: 'bird_nearby'     },
-        { text: '🦆 Species',  callback_data: 'bird_species'    },
-      ],
-      [
-        { text: '🗺️ Hotspots', callback_data: 'bird_hotspot'    },
-        { text: '📓 My Logs',  callback_data: 'bird_logs'       },
-      ],
-      [
-        { text: '✅ Done',     callback_data: 'done'            },
+        { text: '✅ Done',    callback_data: 'done'       },
       ],
     ],
   },
@@ -37,6 +29,9 @@ const EBIRD_SUBMENU = {
         { text: '🦆 Species',  callback_data: 'bird_species'    },
       ],
       [
+        { text: '🗺️ Hotspots', callback_data: 'bird_hotspot'    },
+      ],
+      [
         { text: '⬅️ Back',    callback_data: 'bird_back_main'  },
         { text: '✅ Done',    callback_data: 'done'            },
       ],
@@ -45,7 +40,7 @@ const EBIRD_SUBMENU = {
 };
 
 async function sendSightingsCategoryMenu(bot, chatId) {
-  return bot.sendMessage(chatId, '🐦 *Bird Sightings*\n\nChoose a search type:', {
+  return bot.sendMessage(chatId, '🐦 *Bird Sightings*\n\nChoose a category to explore:', {
     parse_mode: 'Markdown',
     reply_markup: SIGHTINGS_CATEGORY_MENU.reply_markup,
   });

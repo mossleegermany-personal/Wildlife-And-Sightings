@@ -169,7 +169,11 @@ const CALLBACKS = {
     const chatId = query.message.chat.id;
     return sendSightingsCategoryMenu(bot, chatId);
   },
-
+  menu_ebird(bot, query) {
+    bot.answerCallbackQuery(query.id);
+    const chatId = query.message.chat.id;
+    return sendEbirdSubmenu(bot, chatId);
+  },
   // bird_* and done callbacks are handled exclusively by birdMenu.handleBirdCallback
   // (registered in bot.js) so they are NOT listed here.
 
