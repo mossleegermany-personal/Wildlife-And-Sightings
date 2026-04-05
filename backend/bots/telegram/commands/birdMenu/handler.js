@@ -147,7 +147,7 @@ function handleBirdCallback(bot, query) {
           clearSession(chatId);
           userStates.delete(chatId);
           try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
-          return bot.sendMessage(chatId, '✅ Session ended. Use /start to begin again.');
+          return bot.sendMessage(chatId, '📋 *Main Menu*', { parse_mode: 'Markdown', ...MAIN_MENU });
         },
       };
 
@@ -363,6 +363,40 @@ function handleBirdCallback(bot, query) {
         });
       }
 
+      // ── Change Date (from results view) ──────────────────────────────────
+      if (cbData.startsWith('change_date_')) {
+        bot.answerCallbackQuery(query.id);
+        try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
+        const type = cbData.replace('change_date_', '');
+        const cacheKey = type === 'nearby' ? `nearby_${chatId}` : `${type}_${chatId}`;
+        const cached = observationsCache.get(cacheKey);
+        if (cached) {
+          if (type === 'nearby') {
+            // Nearby uses its own date selection UI
+            const state = userStates.get(chatId) || {};
+            const latitude  = state.latitude  || cached.latitude;
+            const longitude = state.longitude || cached.longitude;
+            const dist      = state.dist      || cached.dist;
+            if (latitude != null && longitude != null && dist != null) {
+              return showNearbyDateSelection(bot, chatId, latitude, longitude, dist);
+            }
+            return bot.sendMessage(chatId, '⚠️ Location data expired. Please use 📍 Nearby again.');
+          }
+          if (type === 'species') {
+            const state = userStates.get(chatId) || {};
+            const species = state.species || cached.species;
+            if (species) {
+              return showSpeciesDateSelection(bot, chatId, cached.displayName, species, { regionCode: cached.regionCode, isHotspot: cached.isHotspot });
+            }
+            return bot.sendMessage(chatId, '⚠️ Species data expired. Please search again.');
+          }
+          return showDateSelection(bot, chatId, cached.regionCode, cached.displayName, type, { isHotspot: cached.isHotspot });
+        }
+        return bot.sendMessage(chatId, '❌ Session expired. Please start a new search.', {
+          reply_markup: { inline_keyboard: [[{ text: '🔄 New Search', callback_data: 'new_search' }]] },
+        });
+      }
+
       // ── Live Updates ──────────────────────────────────────────────────────
       if (cbData === 'bird_live_updates') {
         bot.answerCallbackQuery(query.id);
@@ -415,6 +449,7 @@ function handleBirdCallback(bot, query) {
               inline_keyboard: [
                 [{ text: '🔍 Sightings', callback_data: 'live_type_sightings' }, { text: '⭐ Notable', callback_data: 'live_type_notable' }],
                 [{ text: '🦆 Species', callback_data: 'live_type_species' }],
+                [{ text: '⬅️ Back to eBird', callback_data: 'menu_ebird' }],
               ],
             },
           }
@@ -458,8 +493,16 @@ function handleBirdCallback(bot, query) {
         try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
         stopLiveUpdate(chatId);
         return bot.sendMessage(chatId,
-          '🔕 *Live Updates stopped.*\n\nUse 🔔 Live Updates to start again.',
-          { parse_mode: 'Markdown' }
+          '🔕 *Live Updates stopped.*',
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🔔 Start Again', callback_data: 'bird_live_updates' }, { text: '⬅️ Back to eBird', callback_data: 'menu_ebird' }],
+                [{ text: '✅ Done', callback_data: 'done' }],
+              ],
+            },
+          }
         );
       }
 
@@ -639,12 +682,13 @@ function registerBirdMenu(bot, addSightingSessions) {
             await deleteMsg(bot, chatId, _st?.message_id);
             const typeLabel = liveType === 'notable' ? '⭐ Notable' : '🔍 Sightings';
             await bot.sendMessage(chatId,
-              `✅ *Live Updates Active!*\n\n📡 Tracking: *${typeLabel}*\n📍 Location: *${esc(text)}*\n\nYou'll be notified of new sightings every 30 seconds.`,
+              `✅ *Live Updates Active!*\n\n📡 Tracking: *${typeLabel}*\n📍 Location: *${esc(text)}*\n\nYou'll be notified of new sightings every 10 seconds.`,
               {
                 parse_mode: 'Markdown',
                 reply_markup: {
                   inline_keyboard: [
                     [{ text: '🔕 Stop', callback_data: 'live_stop' }, { text: '🔄 Change', callback_data: 'live_setup' }],
+                    [{ text: '⬅️ Back to eBird', callback_data: 'menu_ebird' }, { text: '✅ Done', callback_data: 'done' }],
                   ],
                 },
               }
@@ -690,12 +734,13 @@ function registerBirdMenu(bot, addSightingSessions) {
             await startLiveUpdate(bot, chatId, 'species', locationInput, regionCode, species);
             await deleteMsg(bot, chatId, _st?.message_id);
             await bot.sendMessage(chatId,
-              `✅ *Live Updates Active!*\n\n📡 Tracking: *🦆 ${esc(sp.comName)}*\n📍 Location: *${esc(locationInput)}*\n\nYou'll be notified of new sightings every 30 seconds.`,
+              `✅ *Live Updates Active!*\n\n📡 Tracking: *🦆 ${esc(sp.comName)}*\n📍 Location: *${esc(locationInput)}*\n\nYou'll be notified of new sightings every 10 seconds.`,
               {
                 parse_mode: 'Markdown',
                 reply_markup: {
                   inline_keyboard: [
                     [{ text: '🔕 Stop', callback_data: 'live_stop' }, { text: '🔄 Change', callback_data: 'live_setup' }],
+                    [{ text: '⬅️ Back to eBird', callback_data: 'menu_ebird' }, { text: '✅ Done', callback_data: 'done' }],
                   ],
                 },
               }

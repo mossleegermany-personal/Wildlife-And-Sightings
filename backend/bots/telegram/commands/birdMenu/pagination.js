@@ -182,11 +182,22 @@ async function sendPaginatedObservations(bot, chatId, observations, displayName,
   navRow.push({ text: '⏭', callback_data: isLast ? 'page_info' : `page_${type}_${totalPages - 1}` });
 
   const buttons = [navRow];
-  buttons.push([
-    { text: '🔢 Jump to Page', callback_data: `jump_${type}` },
-    { text: '� Try Again', callback_data: 'new_search' },
-    { text: '✅ Done', callback_data: 'done' },
-  ]);
+  if (type === 'sightings' || type === 'notable' || type === 'nearby' || type === 'species') {
+    buttons.push([
+      { text: '📅 Change Date', callback_data: `change_date_${type}` },
+      { text: '🔢 Jump to Page', callback_data: `jump_${type}` },
+    ]);
+    buttons.push([
+      { text: '🔄 Try Again', callback_data: 'new_search' },
+      { text: '✅ Done', callback_data: 'done' },
+    ]);
+  } else {
+    buttons.push([
+      { text: '🔢 Jump to Page', callback_data: `jump_${type}` },
+      { text: '🔄 Try Again', callback_data: 'new_search' },
+      { text: '✅ Done', callback_data: 'done' },
+    ]);
+  }
 
   const replyMarkup = { inline_keyboard: buttons };
 

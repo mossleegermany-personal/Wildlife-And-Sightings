@@ -250,8 +250,17 @@ async function handleSightings(bot, chatId, context) {
 }
 
 async function handlePlaceSearch(bot, chatId, input, type, context, species) {
-  // Helper: route to correct date-selection UI (species-aware)
-  function dateUI(regionCode, displayName, opts) {
+  // For sightings/notable: fetch results immediately with default date (Last 3 Days).
+  // For species: still show date picker (species searches are more targeted).
+  function defaultFetch(regionCode, displayName, opts) {
+    const dateFilter = getDatePreset('last_3_days', regionCode);
+    if (type === 'sightings') {
+      return fetchAndSendSightings(bot, chatId, regionCode, displayName, 0, dateFilter, opts?.isHotspot || false, context);
+    }
+    if (type === 'notable') {
+      return fetchAndSendNotable(bot, chatId, regionCode, displayName, 0, dateFilter, opts?.isHotspot || false, context);
+    }
+    // species / fallback — keep date picker
     if (type === 'species' && species) {
       return showSpeciesDateSelection(bot, chatId, displayName, species, { regionCode, isHotspot: opts?.isHotspot });
     }
@@ -267,7 +276,7 @@ async function handlePlaceSearch(bot, chatId, input, type, context, species) {
 
     // Tier 1: Has ISO subdivision (state/prefecture) → eBird region code
     if (geo.isoSubdivision) {
-      return dateUI(geo.isoSubdivision, input);
+      return defaultFetch(geo.isoSubdivision, input);
     }
 
     // Tier 2: Boundary without ISO subdivision
@@ -277,11 +286,11 @@ async function handlePlaceSearch(bot, chatId, input, type, context, species) {
         // Sub-region (e.g. Pasir Ris) → coordinate search with bbox radius
         const r = Math.max(1, Math.min(50, Math.ceil(radius * 1.5)));
         const coordCode = `COORD:${Number(geo.lat).toFixed(4)},${Number(geo.lng).toFixed(4)},${r}`;
-        return dateUI(coordCode, input);
+        return defaultFetch(coordCode, input);
       }
       // Large boundary (country-level) → country code
       const regionCode = geo.country_code || 'WORLD';
-      return dateUI(regionCode, input);
+      return defaultFetch(regionCode, input);
     }
 
     // Tier 3: Non-boundary (landmark/park) → fall through to hotspot name search
@@ -323,7 +332,7 @@ async function handlePlaceSearch(bot, chatId, input, type, context, species) {
         const radius = geo.boundingbox ? bboxRadiusKm(geo.boundingbox) : 5;
         const r = Math.max(1, Math.min(50, Math.ceil(radius * 1.5)));
         const coordCode = `COORD:${Number(geo.lat).toFixed(4)},${Number(geo.lng).toFixed(4)},${r}`;
-        return dateUI(coordCode, input);
+        return defaultFetch(coordCode, input);
       }
 
       let message = `❌ No locations found matching "*${esc(placeName)}*" in *${esc(regionInput)}*.`;
@@ -337,7 +346,7 @@ async function handlePlaceSearch(bot, chatId, input, type, context, species) {
     userStates.set(chatId, { ...prev, context: context || {}, species });
 
     if (hotspots.length === 1) {
-      return dateUI(hotspots[0].locId, hotspots[0].locName, { isHotspot: true });
+      return defaultFetch(hotspots[0].locId, hotspots[0].locName, { isHotspot: true });
     } else {
       await showHotspotSelection(bot, chatId, hotspots, type, regionInput, context, species);
     }

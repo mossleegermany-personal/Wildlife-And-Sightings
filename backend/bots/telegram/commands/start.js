@@ -121,7 +121,8 @@ module.exports = function registerStart(bot) {
       `👋 Hello, <b>${name}</b>! Welcome to the <b>Wildlife &amp; Sightings Bot</b>.\n\n` +
       `🌿 Here's what I can do:\n` +
       `• 🦎 <b>Identify animals</b> — send a photo and I'll tell you what it is\n` +
-      `• 🐦 <b>Bird Sightings</b> — explore recent sightings, notable birds, and more via eBird\n` +
+      `• 🐦 <b>Bird Sightings</b> — explore recent sightings, notable birds, and nearby species via eBird\n` +
+      `• 🔔 <b>Live Updates</b> — get real-time alerts for new bird sightings\n` +
       `• 📓 <b>My Logs</b> — view your personal sighting history\n\n` +
       `Choose an option below to get started:`,
       { parse_mode: 'HTML' }

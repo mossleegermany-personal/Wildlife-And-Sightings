@@ -167,11 +167,13 @@ const CALLBACKS = {
   async menu_sightings(bot, query) {
     bot.answerCallbackQuery(query.id);
     const chatId = query.message.chat.id;
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
     return sendSightingsCategoryMenu(bot, chatId);
   },
-  menu_ebird(bot, query) {
+  async menu_ebird(bot, query) {
     bot.answerCallbackQuery(query.id);
     const chatId = query.message.chat.id;
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
     return sendEbirdSubmenu(bot, chatId);
   },
   // bird_* and done callbacks are handled exclusively by birdMenu.handleBirdCallback
