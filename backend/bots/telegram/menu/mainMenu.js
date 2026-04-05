@@ -145,6 +145,7 @@ const CALLBACKS = {
     const chat = query.message.chat;
     const user = query.from;
     const chatId = chat.id;
+    try { await bot.deleteMessage(chatId, query.message.message_id); } catch { /* ignore */ }
     const chatType = chat.type || 'private';
     const chatTitle = chat.title || null;
     const sender = chatTitle

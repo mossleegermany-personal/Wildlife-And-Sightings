@@ -430,8 +430,10 @@ async function fetchAndSendSightings(bot, chatId, regionCode, originalInput, pag
       observationsCache.set(cacheKey, { observations, displayName, regionCode, type: 'sightings', dateLabel, isHotspot });
     } catch (err) {
       await deleteMsg(bot, chatId, _st?.message_id);
-      await bot.sendMessage(chatId, `❌ Could not fetch sightings for *${esc(displayName)}*.`, { parse_mode: 'Markdown' });
-      await resendLastPrompt(bot, chatId);
+      await bot.sendMessage(chatId, `❌ Could not fetch sightings for *${esc(displayName)}*.`, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '🔄 Try Again', callback_data: 'new_search' }, { text: '✅ Done', callback_data: 'done' }]] },
+      });
       return;
     }
   }
@@ -447,9 +449,11 @@ async function fetchAndSendSightings(bot, chatId, regionCode, originalInput, pag
           : `\n\n💡 Try a longer date range or a more specific location`;
     await bot.sendMessage(chatId,
       `❌ No observations found for *${esc(displayName)}* in the selected time range.${hint}`,
-      { parse_mode: 'Markdown' }
+      {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '🔄 Try Again', callback_data: 'new_search' }, { text: '✅ Done', callback_data: 'done' }]] },
+      }
     );
-    await resendLastPrompt(bot, chatId);
     return;
   }
 
@@ -534,8 +538,10 @@ async function fetchAndSendNotable(bot, chatId, regionCode, originalInput, page,
       observationsCache.set(cacheKey, { observations, displayName, regionCode, type: 'notable', dateLabel, isHotspot });
     } catch (err) {
       await deleteMsg(bot, chatId, _st?.message_id);
-      await bot.sendMessage(chatId, `❌ Could not fetch notable sightings for *${esc(displayName)}*.`, { parse_mode: 'Markdown' });
-      await resendLastPrompt(bot, chatId);
+      await bot.sendMessage(chatId, `❌ Could not fetch notable sightings for *${esc(displayName)}*.`, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: [[{ text: '🔄 Try Again', callback_data: 'new_search' }, { text: '✅ Done', callback_data: 'done' }]] },
+      });
       return;
     }
   }
@@ -545,8 +551,10 @@ async function fetchAndSendNotable(bot, chatId, regionCode, originalInput, page,
     const noDataHint = isToday
       ? ` No sightings logged yet for today — try *Yesterday* or *Last 3 Days*`
       : ' Try a longer date range or a different location.';
-    await bot.sendMessage(chatId, `❌ No notable observations found for *${esc(displayName)}* in the selected time range.${noDataHint}`, { parse_mode: 'Markdown' });
-    await resendLastPrompt(bot, chatId);
+    await bot.sendMessage(chatId, `❌ No notable observations found for *${esc(displayName)}* in the selected time range.${noDataHint}`, {
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: [[{ text: '🔄 Try Again', callback_data: 'new_search' }, { text: '✅ Done', callback_data: 'done' }]] },
+    });
     return;
   }
 

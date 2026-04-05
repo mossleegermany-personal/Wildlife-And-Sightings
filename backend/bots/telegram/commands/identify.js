@@ -1003,6 +1003,8 @@ module.exports = function registerIdentify(bot) {
 module.exports.clearEndedSession = clearEndedSession;
 /** Clear a pending location-wait for a user so birdMenu can handle their next message. */
 module.exports.clearPending = (userId) => { if (userId) pending.delete(userId); };
+/** Returns true if identify is waiting for a location reply from this user. */
+module.exports.hasPending = (userId) => userId != null && pending.has(userId);
 
 // ── Run identification ────────────────────────────────────────────────────────
 

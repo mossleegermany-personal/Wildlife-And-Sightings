@@ -30,7 +30,9 @@ const {
   showDateSelection, showSpeciesDateSelection,
   handleDateCallback, handleCustomDateInput,
   handleSightings, handlePlaceSearch,
+  fetchAndSendSightings,
   handleNotable,
+  fetchAndSendNotable,
   handleMyLogs,
   handleNearby, handleLocationMsg, showNearbyDateSelection, fetchNearbySightings,
   handleHotspots, searchAndShowHotspots,
@@ -200,6 +202,14 @@ function handleBirdCallback(bot, query) {
         userStates.set(chatId, { ...prev, context: stateCtx, species: state?.species });
         if (type === 'species' && state?.species) {
           return showSpeciesDateSelection(bot, chatId, locName, state.species, { regionCode: locId, isHotspot: true });
+        }
+        // Sightings/notable: load results immediately with default date
+        const { getDatePreset } = require('./helpers');
+        if (type === 'sightings') {
+          return fetchAndSendSightings(bot, chatId, locId, locName, 0, getDatePreset('last_3_days', locId), true, stateCtx);
+        }
+        if (type === 'notable') {
+          return fetchAndSendNotable(bot, chatId, locId, locName, 0, getDatePreset('last_3_days', locId), true, stateCtx);
         }
         return showDateSelection(bot, chatId, locId, locName, type, { isHotspot: true });
       }
@@ -551,6 +561,9 @@ function registerBirdMenu(bot, addSightingSessions) {
 
         // Ignore all bot commands — let their own handlers deal with them
         if (text.startsWith('/')) return;
+
+        // If identify.js is waiting for a location reply from this user, don't intercept it
+        if (getIdentify().hasPending?.(msg.from?.id)) return;
 
         if (!state) {
           logger.info('[birdMenu] universal fallback text location', { chatId, text });
