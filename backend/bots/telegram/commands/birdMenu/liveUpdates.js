@@ -1,7 +1,7 @@
 'use strict';
 
 const { ebird }  = require('./services');
-const { escHtml, getTimezoneForRegion, getTzAbbr } = require('./helpers');
+const { escHtml, getTimezoneForRegion, getTzAbbr, resolveTimezoneForRegion } = require('./helpers');
 const { BREEDING_CODES } = require('./constants');
 const logger      = require('../../../../src/utils/logger');
 
@@ -136,6 +136,12 @@ async function pollAndNotify(bot, chatId) {
 
 async function startLiveUpdate(bot, chatId, type, locationInput, regionCode, species) {
   stopLiveUpdate(chatId); // clear any existing sub first
+
+  // Ensure timezone cache is populated for COORD-based regions (e.g. "Botanic Gardens, Singapore")
+  // so getTodayDateStr uses the correct local timezone instead of UTC.
+  if (regionCode && regionCode.startsWith('COORD:')) {
+    await resolveTimezoneForRegion(regionCode).catch(() => {});
+  }
 
   // Seed seenSubIds with current observations so we only alert on *new* ones
   const seenSubIds = new Set();

@@ -91,8 +91,14 @@ function createBot(app) {
   // Register bird callback_query handler. handleBirdCallback is from handler.js (a leaf
   // module with no circular-require risk), so this is guaranteed to be a function on Azure.
   logger.info('[bot] typeof handleBirdCallback =', typeof handleBirdCallback);
+  const _processedBirdCbIds = new Set();
   bot.on('callback_query', (query) => {
     if (!query?.data) return;
+    // Dedup guard: ignore the same callback_query id within 10s (prevents duplicates
+    // from double-tap or Telegram webhook retries)
+    if (_processedBirdCbIds.has(query.id)) return;
+    _processedBirdCbIds.add(query.id);
+    setTimeout(() => _processedBirdCbIds.delete(query.id), 10_000);
     Promise.resolve(handleBirdCallback(bot, query)).catch((err) => {
       logger.error('[bot] handleBirdCallback error', { cbData: query?.data, error: err.message, stack: err.stack });
     });

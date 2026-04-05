@@ -420,7 +420,7 @@ function handleBirdCallback(bot, query) {
             : sub.type === 'species' ? `🦆 ${sub.species?.commonName}`
             : '🔍 Sightings';
           return bot.sendMessage(chatId,
-            `🔔 *Live Updates Active*\n\n📡 Tracking: *${esc(typeLabel)}*\n📍 Location: *${esc(sub.locationInput)}*\n\nPolling every 30 seconds for new sightings.`,
+            `🔔 *Live Updates Active*\n\n📡 Tracking: *${esc(typeLabel)}*\n📍 Location: *${esc(sub.locationInput)}*\n\nPolling every 10 seconds for new sightings.`,
             {
               parse_mode: 'Markdown',
               reply_markup: {
