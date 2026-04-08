@@ -25,8 +25,10 @@ const { execSync } = require('child_process');
 const http = require('http');
 const app = require('../src/app');
 const logger = require('../src/utils/logger');
-const { EBirdService } = require('../bots/birdSighting/services/ebirdService');
 const { createBot } = require('../bots/telegram/bot');
+const { initSocket } = require('../src/socket');
+const { SheetWatcher } = require('../database/googleSheets/services/sheetWatcher');
+const sheetsService = require('../database/googleSheets/services/googleSheetsService');
 
 // ── Port normalisation ────────────────────────────────────────────────────────
 
@@ -44,14 +46,11 @@ app.set('port', PORT);
 
 const server = http.createServer(app);
 
-// ── Pre-load shared resources ─────────────────────────────────────────────────
+// ── Socket.IO + live sheet watcher ────────────────────────────────────────────
 
-const ebirdService = new EBirdService();
-ebirdService.preloadTaxonomy().catch((err) => {
-  logger.warn('eBird taxonomy preload failed — will retry on first request', {
-    error: err.message,
-  });
-});
+const io = initSocket(server);
+const sheetWatcher = new SheetWatcher(sheetsService, io);
+sheetWatcher.start();
 
 // ── Start Telegram bot ────────────────────────────────────────────────────────
 
@@ -93,6 +92,7 @@ server.on('listening', () => {
 
 function shutdown(signal) {
   logger.info(`Received ${signal}. Shutting down gracefully...`);
+  sheetWatcher.stop();
   server.close(() => {
     logger.info('HTTP server closed.');
     process.exit(0);

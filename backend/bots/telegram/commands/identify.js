@@ -1,12 +1,9 @@
 // ── Daily identification limits (per chatId, resets at 00:00 SGT) ─────────────
 // Private chats: 15 identifications/day   Group chats: 20 identifications/day
-// In-memory cache is seeded from Google Sheets on the first request of the day
-// so limits survive bot restarts within the same calendar day.
+// Count is always read directly from Google Sheets — the actual logged rows are
+// the single source of truth. No in-memory counter is maintained.
 const PRIVATE_DAILY_LIMIT = 15;
 const GROUP_DAILY_LIMIT   = 20;
-
-// chatId -> { date: 'dd/mm/yyyy', count: number }
-const dailyIdentifyCount = new Map();
 
 function getTodaySGT() {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore' }).formatToParts(new Date());
@@ -15,68 +12,13 @@ function getTodaySGT() {
 }
 
 async function getTodayCount(chatId) {
-  const today = getTodaySGT();
-  const cached = dailyIdentifyCount.get(chatId);
-  if (cached && cached.date === today) return cached.count;
-  // First access today — seed from sheets so restarts don't reset the counter
   try {
-    const count = await sheetsService.getDailyIdentificationCount(chatId, today);
-    dailyIdentifyCount.set(chatId, { date: today, count });
-    return count;
+    return await sheetsService.getDailyIdentificationCount(chatId, getTodaySGT());
   } catch {
     return 0; // if sheets is unavailable, allow through (fail open)
   }
 }
-
-function incrementTodayCount(chatId) {
-  const today = getTodaySGT();
-  const cached = dailyIdentifyCount.get(chatId);
-  const count = (cached && cached.date === today ? cached.count : 0) + 1;
-  dailyIdentifyCount.set(chatId, { date: today, count });
-}
 // ─────────────────────────────────────────────────────────────────────────────
-const ABUNDANCE_DEFINITIONS = {
-  VC: 'Very common (VC) - found almost all the time in suitable locations',
-  C:  'Common (C) - found most of the time in suitable locations',
-  U:  'Uncommon (U) - found some of the time',
-  R:  'Rare (R) - found several times a year',
-  VR: 'Very rare (VR) - not found every year',
-  Ex: 'Extirpated (Ex) - used to be found in Singapore, but not any more',
-};
-
-function classifyAbundance({ gbifOccurrence, ebirdSummary }) {
-  // Use both GBIF and eBird counts for the location
-  const gbifCount = gbifOccurrence?.count || 0;
-  const ebirdCount = ebirdSummary?.count || 0;
-  const total = gbifCount + ebirdCount;
-
-  // Extirpated: if there are zero records in both
-  if (gbifCount === 0 && ebirdCount === 0) {
-    return { code: 'Ex', label: ABUNDANCE_DEFINITIONS.Ex };
-  }
-  // Very common: >100 records
-  if (total > 100) {
-    return { code: 'VC', label: ABUNDANCE_DEFINITIONS.VC };
-  }
-  // Common: 51-100
-  if (total > 50) {
-    return { code: 'C', label: ABUNDANCE_DEFINITIONS.C };
-  }
-  // Uncommon: 11-50
-  if (total > 10) {
-    return { code: 'U', label: ABUNDANCE_DEFINITIONS.U };
-  }
-  // Rare: 2-10
-  if (total > 1) {
-    return { code: 'R', label: ABUNDANCE_DEFINITIONS.R };
-  }
-  // Very rare: 1 record
-  if (total === 1) {
-    return { code: 'VR', label: ABUNDANCE_DEFINITIONS.VR };
-  }
-  // Fallback
-  return { code: 'Ex', label: ABUNDANCE_DEFINITIONS.Ex };
-}
 /**
  * Photo handler — identifies any animal photo sent to the chat.
  *
@@ -90,10 +32,18 @@ const sharp = require('sharp');
 const exifParser = require('exif-parser');
 const geminiService = require('../../animalIdentification/services/geminiService');
 const { createResultCanvas } = require('../../animalIdentification/services/imageService');
-const { getSpeciesPhoto } = require('../../animalIdentification/services/inaturalistService');
+const { getSpeciesPhoto, getEBirdPhoto } = require('../../animalIdentification/services/inaturalistService');
 const { getSpeciesCode, getNearbySpeciesObservations, getEBirdSubspecificGroups, getEBirdSubnationalCode } = require('../../animalIdentification/services/ebirdService');
 const { getGBIFNames, geocodeLocation, checkOccurrencesAtLocation, getGeographicRange, getGlobalOccurrenceCount, getSubspeciesOccurrencesByCountry } = require('../../animalIdentification/services/gbifService');
 const { getWikipediaInfo } = require('../../animalIdentification/services/wikipediaService');
+const {
+  classifyLocalStatus,
+  classifyAbundance,
+  isMonotypic,
+  getEpithet,
+  getEpithets,
+  computeDisplayFields,
+} = require('../../animalIdentification/services/enrichmentUtils');
 const { consumeIdentifyPromptMessage, setIdentifyPromptMessage, hasIdentifyPromptMessage, setSessionStart, getSessionStart, clearSessionStart, clearIdentifySession } = require('../menu/mainMenu');
 const { resolveChannelContext } = require('../utils/chatContext');
 const { ebird: ebirdSvc } = require('./birdMenu/services');
@@ -101,6 +51,7 @@ const { getTimezoneForRegion, getTzAbbr, parseBreedingCode, parseAgeSex } = requ
 const sheetsService = require('../../../database/googleSheets/services/googleSheetsService');
 //const googleDriveService = require('../../../database/googleDrive/services/googleDriveService');
 const logger = require('../../../src/utils/logger');
+const { ebird: _ebirdSvcIdentify } = require('./birdMenu/services');
 
 function escHtml(str) {
   return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -136,74 +87,7 @@ function getDefaultLocationForUser(userId) {
   return lastLocationByUser.get(userId) || 'Singapore';
 }
 
-const LOCAL_STATUS_DEFINITIONS = {
-  R:   'Resident',
-  RB:  'Resident Breeder',
-  WV:  'Winter Visitor',
-  PM:  'Passage Migrant',
-  MB:  'Migrant Breeder',
-  NBV: 'Non-breeding Visitor',
-  V:   'Vagrant',
-  I:   'Introduced',
-  rI:  'Reintroduced',
-};
 
-function includesAny(text, words) {
-  const normalized = String(text || '').toLowerCase();
-  return words.some((w) => normalized.includes(w));
-}
-
-function classifyBirdLocalStatus({ gbifOccurrence, ebirdSummary, migratoryStatus }) {
-  const occCount = gbifOccurrence?.count || 0;
-  const monthsObservedCount = gbifOccurrence?.monthsObservedCount || 0;
-  const breedingSignalCount = gbifOccurrence?.breedingSignalCount || 0;
-  const establishmentMeans = gbifOccurrence?.establishmentMeans || [];
-  const ebirdCount = ebirdSummary?.count || 0;
-  const migration = String(migratoryStatus || '').toLowerCase();
-
-  const introSignal = establishmentMeans.some((s) => includesAny(s, ['introduced', 'released', 'escape', 'escaped']));
-  if (introSignal) {
-    return { code: 'I', label: LOCAL_STATUS_DEFINITIONS.I };
-  }
-
-  const reintroSignal = establishmentMeans.some((s) => includesAny(s, ['reintroduced', 're-introduced', 'reintroduction']));
-  if (reintroSignal) {
-    return { code: 'rI', label: LOCAL_STATUS_DEFINITIONS.rI };
-  }
-
-  if (occCount === 0 && ebirdCount === 0) {
-    return { code: 'V', label: LOCAL_STATUS_DEFINITIONS.V };
-  }
-
-  if (includesAny(migration, ['passage'])) {
-    return { code: 'PM', label: LOCAL_STATUS_DEFINITIONS.PM };
-  }
-
-  if (includesAny(migration, ['winter visitor', 'wintering', 'wv'])) {
-    return { code: 'WV', label: LOCAL_STATUS_DEFINITIONS.WV };
-  }
-
-  const hasYearRoundSignal = monthsObservedCount >= 10;
-  const hasBreedingSignal = breedingSignalCount > 0 || includesAny(migration, ['breeder', 'breeding']);
-
-  if (hasYearRoundSignal && hasBreedingSignal) {
-    return { code: 'RB', label: LOCAL_STATUS_DEFINITIONS.RB };
-  }
-
-  if (hasYearRoundSignal && !hasBreedingSignal) {
-    return { code: 'R', label: LOCAL_STATUS_DEFINITIONS.R };
-  }
-
-  if (hasBreedingSignal && !hasYearRoundSignal) {
-    return { code: 'MB', label: LOCAL_STATUS_DEFINITIONS.MB };
-  }
-
-  if (occCount > 0 || ebirdCount > 0) {
-    return { code: 'NBV', label: LOCAL_STATUS_DEFINITIONS.NBV };
-  }
-
-  return { code: 'V', label: LOCAL_STATUS_DEFINITIONS.V };
-}
 
 function extractImageCapturedAt(buffer) {
   try {
@@ -268,28 +152,35 @@ function detectMimeTypeFromPath(filePath) {
 
 async function preprocessCompressedImage(inputBuffer) {
   try {
-    const img = sharp(inputBuffer, { failOn: 'none' });
-    const meta = await img.metadata();
-    const width = meta.width || 0;
-    const height = meta.height || 0;
-    if (!width || !height) return inputBuffer;
+    const meta = await sharp(inputBuffer, { failOn: 'none' }).metadata();
+    const longEdge = Math.max(meta.width || 0, meta.height || 0);
 
-    let targetWidth = width;
-    let targetHeight = height;
-    const longEdge = Math.max(width, height);
+    // Always upscale: images < 1280px → 1280px; images ≥ 1280px → 4096px.
+    // Never downscale — withoutEnlargement is intentionally NOT set.
+    const target = longEdge > 0 && longEdge < 1280 ? 1280 : 4096;
 
-    // Telegram photo uploads are often aggressively compressed; upscale small images.
-    if (longEdge < 1280) {
-      const scale = Math.min(2, 1280 / longEdge);
-      targetWidth = Math.round(width * scale);
-      targetHeight = Math.round(height * scale);
-    }
-
+    // After upscaling we apply:
+    //   1. Unsharp mask — recovers fine feather/scale/fur detail lost to JPEG compression
+    //   2. Mild linear contrast boost — makes thin marks (malar stripe width, barring
+    //      density, bare-part colour) more distinct for Gemini's vision model
+    // Parameters chosen conservatively so we reveal detail without introducing artefacts.
     return await sharp(inputBuffer, { failOn: 'none' })
-      .resize(targetWidth, targetHeight, { fit: 'inside', kernel: sharp.kernel.lanczos3, withoutEnlargement: false })
+      .resize(target, target, { fit: 'inside', kernel: sharp.kernel.lanczos3 })
+      // 1. Denoise — median 3×3 removes JPEG blocking/speckle while preserving hard edges
+      .median(3)
+      // 2. Auto-level — stretches histogram so the darkest pixel → 0 and brightest → 255,
+      //    correcting underexposed/overexposed shots so Gemini sees the full tonal range
       .normalise()
-      .sharpen({ sigma: 1.0, m1: 0.6, m2: 1.2 })
-      .jpeg({ quality: 95, mozjpeg: true, chromaSubsampling: '4:4:4' })
+      // 3. Unsharp mask — recovers fine feather/scale/fur detail after compression blur
+      //    sigma=1.2, m1=1.5, m2=0.5: moderate sharpening with gentle edge handling
+      .sharpen({ sigma: 1.2, m1: 1.5, m2: 0.5 })
+      // 4. Saturation boost — makes colour field marks (rufous flanks, yellow bill,
+      //    iridescent feathers, bare-part colours) more vivid and distinct
+      .modulate({ saturation: 1.2 })
+      // 5. Mild contrast lift — opens up midtones and makes thin marks (malar stripe,
+      //    supercilium, barring) more visible after normalisation
+      .linear(1.06, -6)
+      .jpeg({ quality: 100, mozjpeg: true })
       .toBuffer();
   } catch (err) {
     logger.warn('Image preprocessing skipped', { error: err.message });
@@ -317,6 +208,7 @@ async function requestLocationAndQueue(bot, chatId, payload, user, chat) {
     buffer: payload.buffer,
     mimeType: payload.mimeType,
     imageCapturedAt: payload.imageCapturedAt || null,
+    isCompressed: payload.isCompressed !== false,
     visualQuestion: payload.visualQuestion || '',
     location: '',
     locationMsgId: locMsg.message_id,
@@ -433,11 +325,12 @@ module.exports = function registerIdentify(bot) {
         loadingMsg = await bot.sendMessage(chatId, '⏳ Loading photo…').catch(() => null);
       }
 
-      const { buffer } = await downloadTelegramFile(bot, inputFileId);
-      const imageCapturedAt = extractImageCapturedAt(buffer);
-      const enhanced = await preprocessCompressedImage(buffer);
+      const { buffer: rawBuffer } = await downloadTelegramFile(bot, inputFileId);
+      const imageCapturedAt = extractImageCapturedAt(rawBuffer);
+      // Telegram compresses photos — upscale to restore detail for Gemini
+      const enhanced = await preprocessCompressedImage(rawBuffer);
 
-      const nightLow = detectNightOrLowLight(buffer);
+      const nightLow = detectNightOrLowLight(rawBuffer);
 
       if (fromSessionEnded) {
         // Session ended: delete image, delete prompt, ignore silently
@@ -471,7 +364,6 @@ module.exports = function registerIdentify(bot) {
             { parse_mode: 'HTML' }
           );
         }
-        incrementTodayCount(chatId);
         // ──────────────────────────────────────────────────────────────────
 
         // Use the session already stored in memory when the button was clicked.
@@ -501,6 +393,7 @@ module.exports = function registerIdentify(bot) {
             imageCapturedAt,
             isNight: nightLow.isNight,
             isLowLight: nightLow.isLowLight,
+            isCompressed: true,
             visualQuestion: (msg.caption || '').trim(),
             sessionId,
             channelId: channelContext.channelId,
@@ -585,7 +478,6 @@ module.exports = function registerIdentify(bot) {
             { parse_mode: 'HTML' }
           );
         }
-        incrementTodayCount(chatId);
         // ──────────────────────────────────────────────────────────────────
 
         // Use the session already stored in memory when the button was clicked.
@@ -613,6 +505,7 @@ module.exports = function registerIdentify(bot) {
             imageCapturedAt,
             isNight: nightLow.isNight,
             isLowLight: nightLow.isLowLight,
+            isCompressed: false,
             visualQuestion: (msg.caption || '').trim(),
             sessionId,
             channelId: channelContext.channelId,
@@ -624,7 +517,15 @@ module.exports = function registerIdentify(bot) {
       }
     } catch (err) {
       await bot.deleteMessage(chatId, loadingMsg?.message_id).catch(() => {});
-      bot.sendMessage(chatId, `❌ Could not process image file: ${escHtml(err.message)}`);
+      const isTooBig = err.message?.includes('file is too big') || err.message?.includes('ETELEGRAM: 400');
+      if (isTooBig) {
+        bot.sendMessage(chatId,
+          '❌ <b>File too large.</b>\n\nTelegram bots can only download files up to <b>20 MB</b>. Please compress your image or send a smaller version.',
+          { parse_mode: 'HTML' }
+        );
+      } else {
+        bot.sendMessage(chatId, `❌ Could not process image file: ${escHtml(err.message)}`);
+      }
     }
   });
 
@@ -698,6 +599,7 @@ module.exports = function registerIdentify(bot) {
         user: state.user,
         inputFileId: state.inputFileId,
         imageCapturedAt: state.imageCapturedAt,
+        isCompressed: state.isCompressed !== false,
         visualQuestion: state.visualQuestion,
         sessionId: state.sessionId || '',
         chatType: state.chatType || 'private',
@@ -740,6 +642,8 @@ module.exports = function registerIdentify(bot) {
         `<b>📷 New Identification</b>\n\nSimply <b>send me a photo</b> and I'll identify the animal in it.`,
         { parse_mode: 'HTML' }
       );
+      // Fire-and-forget: ensure taxonomy is warm for the next identification.
+      _ebirdSvcIdentify.preloadTaxonomy().catch(() => {});
       setIdentifyPromptMessage(chatId, sent.message_id);
       setSessionStart(
         query.from?.id,
@@ -1059,6 +963,7 @@ module.exports = function registerIdentify(bot) {
       user: state.user,
       inputFileId: state.inputFileId,
       imageCapturedAt: state.imageCapturedAt,
+      isCompressed: state.isCompressed !== false,
       visualQuestion: state.visualQuestion,
       sessionId: state.sessionId || '',
       chatType: state.chatType || 'private',
@@ -1086,7 +991,17 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
     bot.editMessageText(text, { chat_id: chatId, message_id: statusMsg.message_id, parse_mode: 'HTML' }).catch(() => {});
 
   try {
-    const result = await geminiService.identifyAnimal(buffer, mimeType, options);
+    // Build Gemini options — map Telegram-specific fields to the identifyAnimal API
+    const geminiOptions = {
+      location: options.location || '',
+      country: options.country || '',
+      identifyTarget: options.visualQuestion || options.identifyTarget || '',
+      habitat: options.habitat || '',
+      additionalNotes: options.additionalNotes || '',
+      imageCapturedAt: options.imageCapturedAt || null,
+      isCompressed: options.isCompressed !== false,
+    };
+    const result = await geminiService.identifyAnimal(buffer, mimeType, geminiOptions);
 
     if (!result.success) {
       await bot.deleteMessage(chatId, statusMsg.message_id).catch(() => {});
@@ -1105,18 +1020,30 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
     const isBird = ['aves', 'bird'].some(k => (tax.class || '').toLowerCase().includes(k));
 
     const speciesLabel = data.commonName || data.scientificName || 'species';
-    await setStatus(`🔎 Cross-referencing <b>${escHtml(speciesLabel)}</b> with eBird &amp; GBIF…`);
+    // Fire-and-forget — UI update, does not need to block the pipeline.
+    setStatus(`🔎 Cross-referencing <b>${escHtml(speciesLabel)}</b> with eBird &amp; GBIF…`);
 
     // GBIF usage key (used for occurrence queries)
     // Save Gemini's original names before any resolution, so eBird can try them first
     const geminiSciName = data.scientificName;
     const geminiCommonName = data.commonName;
 
+    // Kick off GBIF lookup, geocoding, and iNat photo in parallel — all are independent
+    const [_gbifNamesRes, _geoRes, _inatRes] = await Promise.allSettled([
+      getGBIFNames(data.scientificName || data.commonName),
+      options.location ? geocodeLocation(options.location) : Promise.resolve(null),
+      !isBird && (data.scientificName || data.commonName)
+        ? getSpeciesPhoto(data.scientificName || data.commonName)
+        : Promise.resolve(null),
+    ]);
+    const gbifNames = _gbifNamesRes.status === 'fulfilled' ? _gbifNamesRes.value : null;
+    let _prefetchedCoords = _geoRes.status === 'fulfilled' ? _geoRes.value : null;
+    const _prefetchedInat  = _inatRes.status === 'fulfilled' ? _inatRes.value : null;
+
     // GBIF: resolve synonym → get usageKey for occurrence counts and accepted names for fallback matching
     let gbifUsageKey = null;
     let gbifResolvedSciName = null;
     let gbifResolvedCommonName = null;
-    const gbifNames = await getGBIFNames(data.scientificName || data.commonName).catch(() => null);
     if (gbifNames && gbifNames.found) {
       gbifUsageKey = gbifNames.usageKey;
       gbifResolvedSciName = gbifNames.scientificName || null;
@@ -1131,24 +1058,34 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
     }
 
     // eBird species code (birds only)
-    // Priority: GBIF accepted names first, then Gemini names.
+    // Priority: Gemini's own name first (eBird/IOC taxonomy is authoritative for birds),
+    // then GBIF's accepted name as fallback (handles genuinely outdated Gemini names).
     let ebirdSpeciesCode = null;
     let _ebirdFoundViaSciName = false;
     if (isBird && (geminiSciName || geminiCommonName)) {
       const ebirdCandidates = [
-        gbifResolvedSciName,
         geminiSciName,
-        gbifResolvedCommonName,
+        gbifResolvedSciName,
         geminiCommonName,
+        gbifResolvedCommonName,
       ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
-      for (const candidateName of ebirdCandidates) {
-        const lookup = await getSpeciesCode(candidateName).catch(() => ({ found: false }));
+      // Run all candidate lookups in parallel — with warm taxonomy cache each is ~1ms.
+      // On cold taxonomy, all 4 share the same in-flight download promise.
+      const ebirdLookups = await Promise.all(
+        ebirdCandidates.map(name => getSpeciesCode(name).catch(() => ({ found: false })))
+      );
+      for (let _i = 0; _i < ebirdCandidates.length; _i++) {
+        const lookup = ebirdLookups[_i];
         if (!lookup.found) continue;
         ebirdSpeciesCode = lookup.speciesCode;
-        // eBird is the authoritative source — use its names for canvas + Wikipedia
-        if (lookup.commonName) data.commonName = lookup.commonName;
-        if (lookup.scientificName) data.scientificName = lookup.scientificName;
-        _ebirdFoundViaSciName = (candidateName === gbifResolvedSciName || candidateName === geminiSciName);
+        // Only adopt eBird's display names when the match came from Gemini's own names.
+        // If the match came from a GBIF-resolved synonym, keep Gemini's identification.
+        const matchedFromGemini = ebirdCandidates[_i] === geminiSciName || ebirdCandidates[_i] === geminiCommonName;
+        if (matchedFromGemini) {
+          if (lookup.commonName) data.commonName = lookup.commonName;
+          if (lookup.scientificName) data.scientificName = lookup.scientificName;
+        }
+        _ebirdFoundViaSciName = (ebirdCandidates[_i] === gbifResolvedSciName || ebirdCandidates[_i] === geminiSciName);
         break;
       }
       // Fetch eBird Identifiable Sub-specific Groups (ISSF) — done later after locationCoords is resolved
@@ -1162,11 +1099,13 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
         gbifResolvedSciName,
         geminiSciName,
       ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
-
-      for (const candidateName of scientificCandidates) {
-        const lookup = await getSpeciesCode(candidateName).catch(() => ({ found: false }));
-        if (!lookup.found) continue;
-        ebirdSpeciesCodeForSightings = lookup.speciesCode;
+      // Parallel lookups — results already cached from the main loop above.
+      const sciLookups = await Promise.all(
+        scientificCandidates.map(name => getSpeciesCode(name).catch(() => ({ found: false })))
+      );
+      for (let _i = 0; _i < scientificCandidates.length; _i++) {
+        if (!sciLookups[_i].found) continue;
+        ebirdSpeciesCodeForSightings = sciLookups[_i].speciesCode;
         break;
       }
     }
@@ -1179,7 +1118,7 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
     let speciesSightingsLocation = options.location || '';
     let ebirdRegionForCaption = '';  // subnational or country code for eBird species URL
     if (!isBird && (data.scientificName || data.commonName)) {
-      const inatData = await getSpeciesPhoto(data.scientificName || data.commonName).catch(() => null);
+      const inatData = _prefetchedInat;
       if (inatData && inatData.taxonSlug) inatSlug = inatData.taxonSlug;
     }
 
@@ -1189,7 +1128,8 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
       let countryCode = '';
       let countryCoords = null;
       if (options.location) {
-        countryCoords = await geocodeLocation(options.location).catch(() => null);
+        countryCoords = _prefetchedCoords || await geocodeLocation(options.location).catch(() => null);
+        _prefetchedCoords = null; // consumed
         if (countryCoords) {
           country = countryCoords.country || (countryCoords.displayName ? countryCoords.displayName.split(',').map(s => s.trim()).pop() : 'Singapore');
           countryCode = (countryCoords.country_code || '').toUpperCase();
@@ -1209,27 +1149,14 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
 
       let sgAbundance = null;
       const isSingapore = countryCode === 'SG' || (!options.location && country.toLowerCase().includes('singapore'));
-      if (isSingapore && speciesSlug) {
-        try {
-          const sgUrl = `https://singaporebirds.com/species/${speciesSlug}/`;
-          const resp = await axios.get(sgUrl, { headers: { 'User-Agent': 'WildlifeBot/1.0' } });
-          if (resp.data) {
-            const localStatusMatch = resp.data.match(/Local Status:\s*<[^>]*>\s*([^<]+)/i);
-            if (localStatusMatch) data.localStatus = localStatusMatch[1].trim();
-            const abundanceMatch = resp.data.match(/Abundance:\s*<[^>]*>\s*([^<]+)/i);
-            if (abundanceMatch) sgAbundance = abundanceMatch[1].trim();
-          }
-        } catch {
-          // fallback to GBIF/eBird logic below
-        }
-      }
 
       // Always fetch GBIF + eBird occurrence for cross-reference (all birds, all locations)
       let gbifOcc = { count: 0 };
       let ebirdLocal = { found: false, count: 0 };
       locationCoords = countryCoords;
       if (options.location) {
-        await setStatus(`📍 Looking up sightings near <b>${escHtml(options.location)}</b>…`);
+        // Fire-and-forget — UI update, does not need to block the pipeline.
+        setStatus(`📍 Looking up sightings near <b>${escHtml(options.location)}</b>…`);
         if (!locationCoords) {
           locationCoords = await geocodeLocation(options.location).catch(() => null);
         }
@@ -1252,14 +1179,8 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
       if (locationCoords?.isoSubdivision && /^[A-Z]{2}-/.test(locationCoords.isoSubdivision)) {
         subnationalCode = locationCoords.isoSubdivision;
       }
-      // Slow path: name-based lookup via eBird region list API
-      if (!subnationalCode && resolvedCountryCode && stateName && options.location) {
-        subnationalCode = await getEBirdSubnationalCode(resolvedCountryCode, stateName).catch(() => null);
-      }
 
-      // Boundary label shown in canvas + sightings header
-      // When stateName is empty (prefecture-level search where Nominatim omits state),
-      // fall back to the user's raw location string which already contains the full name.
+      // Boundary label (may be updated below if slow-path subnationalCode resolves)
       speciesSightingsLocation = subnationalCode
         ? (stateName
             ? `${stateName}, ${locationCoords?.country || country}`
@@ -1267,95 +1188,135 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
         : (locationCoords?.country || country || options.location || 'Unknown location');
       ebirdRegionForCaption = subnationalCode || resolvedCountryCode || '';
 
-      // GBIF occurrence + eBird local — both within the resolved boundary
-      if (locationCoords) {
-        if (gbifUsageKey) {
-          gbifOcc = await checkOccurrencesAtLocation(gbifUsageKey, locationCoords).catch(() => ({ count: 0 }));
-        }
-        if (ebirdSpeciesCode) {
-          const ebirdLocalQuery = subnationalCode
-            ? { subnationalCode }
-            : resolvedCountryCode
-              ? { countryCode: resolvedCountryCode, isCountryOnly: true }
-              : { ...locationCoords };
-          ebirdLocal = await getNearbySpeciesObservations(ebirdSpeciesCode, ebirdLocalQuery).catch(() => ({ found: false, count: 0 }));
-        }
+      // Run all independent I/O in parallel:
+      //   1. GBIF occurrence count at location
+      //   2. eBird local status (country-level; subnational is used below if resolved)
+      //   3. eBird subnational code slow-path lookup (if not already from isoSubdivision)
+      //   4. singaporebirds.com scrape for local status + abundance (SG only)
+      const _ebirdLocalQuery = subnationalCode
+        ? { subnationalCode }
+        : resolvedCountryCode
+          ? { countryCode: resolvedCountryCode, isCountryOnly: true }
+          : locationCoords ? { ...locationCoords } : null;
+      const [_gbifOccRes, _ebirdLocalRes, _subCodeRes, _sgRes] = await Promise.allSettled([
+        gbifUsageKey && locationCoords
+          ? checkOccurrencesAtLocation(gbifUsageKey, locationCoords)
+          : Promise.resolve({ count: 0 }),
+        ebirdSpeciesCode && locationCoords && _ebirdLocalQuery
+          ? getNearbySpeciesObservations(ebirdSpeciesCode, _ebirdLocalQuery)
+          : Promise.resolve({ found: false, count: 0 }),
+        (!subnationalCode && resolvedCountryCode && stateName && options.location)
+          ? getEBirdSubnationalCode(resolvedCountryCode, stateName)
+          : Promise.resolve(subnationalCode),
+        (isSingapore && speciesSlug)
+          ? axios.get(`https://singaporebirds.com/species/${speciesSlug}/`, { headers: { 'User-Agent': 'WildlifeBot/1.0' }, timeout: 5000 }).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+
+      gbifOcc = (_gbifOccRes.status === 'fulfilled' && _gbifOccRes.value) || { count: 0 };
+      ebirdLocal = (_ebirdLocalRes.status === 'fulfilled' && _ebirdLocalRes.value) || { found: false, count: 0 };
+      if (_subCodeRes.status === 'fulfilled' && _subCodeRes.value) {
+        subnationalCode = _subCodeRes.value;
+        // Refine location labels now that subnational code is known
+        speciesSightingsLocation = subnationalCode
+          ? (stateName
+              ? `${stateName}, ${locationCoords?.country || country}`
+              : (options.location || locationCoords?.country || country || 'Unknown location'))
+          : (locationCoords?.country || country || options.location || 'Unknown location');
+        ebirdRegionForCaption = subnationalCode || resolvedCountryCode || '';
+      }
+      const _sgResp = _sgRes.status === 'fulfilled' ? _sgRes.value : null;
+      if (_sgResp?.data) {
+        const localStatusMatch = _sgResp.data.match(/Local Status:\s*<[^>]*>\s*([^<]+)/i);
+        if (localStatusMatch) data.localStatus = localStatusMatch[1].trim();
+        const abundanceMatch = _sgResp.data.match(/Abundance:\s*<[^>]*>\s*([^<]+)/i);
+        if (abundanceMatch) sgAbundance = abundanceMatch[1].trim();
       }
 
-      // No. of Sightings records — same boundary scope
-      let speciesCountrySightingsCount = null;
+      // Run sightings count + ISSF subspecies + GBIF country-subspecies all in parallel.
+      // regionCode is needed by ISSF and GBIF regardless of ebirdSpeciesCode.
+      // Fall back to 'SG' when isSingapore is true but no location coords were resolved
+      // (e.g. user skipped location or geocoding failed) so subspecies lookups still run.
+      const regionCode = (locationCoords?.country_code || countryCode || (isSingapore ? 'SG' : '')).toUpperCase();
       logger.info(`[identify] Sightings lookup: code=${ebirdSpeciesCodeForSightings}, subnational=${subnationalCode}, country=${resolvedCountryCode}`);
-      if (ebirdSpeciesCodeForSightings) {
-        if (subnationalCode) {
-          const ebirdSub = await getNearbySpeciesObservations(
-            ebirdSpeciesCodeForSightings,
-            { subnationalCode }
-          ).catch(() => ({ found: false, count: null, records: [] }));
-          speciesCountrySightingsCount = ebirdSub?.found ? (ebirdSub.count ?? null) : null;
-          speciesRecentRecords = ebirdSub?.records || [];
-          logger.info(`[identify] Subnational result: count=${speciesCountrySightingsCount}, records=${speciesRecentRecords.length}`);
-        } else if (resolvedCountryCode) {
-          const ebirdCountry = await getNearbySpeciesObservations(
-            ebirdSpeciesCodeForSightings,
-            { countryCode: resolvedCountryCode, isCountryOnly: true }
-          ).catch(() => ({ found: false, count: null, records: [] }));
-          speciesCountrySightingsCount = ebirdCountry?.found ? (ebirdCountry.count ?? null) : null;
-          speciesRecentRecords = ebirdCountry?.records || [];
-          logger.info(`[identify] Country result: count=${speciesCountrySightingsCount}, records=${speciesRecentRecords.length}`);
-        }
+
+      // Build the sightings promise.
+      // When the species code hasn't changed from the local-status lookup, reuse those
+      // records directly to avoid an identical second round-trip to the eBird API.
+      let _sightingsPromise;
+      if (!ebirdSpeciesCodeForSightings) {
+        _sightingsPromise = Promise.resolve(null);
+      } else if (ebirdSpeciesCodeForSightings === ebirdSpeciesCode && ebirdLocal?.found) {
+        _sightingsPromise = Promise.resolve({ _reuse: true, count: ebirdLocal.count, records: ebirdLocal.records || [] });
+      } else if (subnationalCode) {
+        _sightingsPromise = getNearbySpeciesObservations(ebirdSpeciesCodeForSightings, { subnationalCode })
+          .catch(() => ({ found: false, count: null, records: [] }));
+      } else if (resolvedCountryCode) {
+        _sightingsPromise = getNearbySpeciesObservations(ebirdSpeciesCodeForSightings, { countryCode: resolvedCountryCode, isCountryOnly: true })
+          .catch(() => ({ found: false, count: null, records: [] }));
+      } else {
+        _sightingsPromise = Promise.resolve(null);
       }
 
-      // Fetch ISSF subspecies from eBird and GBIF country occurrences in parallel
+      let speciesCountrySightingsCount = null;
+      const [_sightingsRes, _issfRes, _gbifSubspRes] = await Promise.allSettled([
+        _sightingsPromise,
+        (ebirdSpeciesCode && regionCode)
+          ? getEBirdSubspecificGroups(ebirdSpeciesCode, regionCode).catch(() => [])
+          : Promise.resolve([]),
+        (gbifUsageKey && regionCode && ebirdSpeciesCode)
+          ? getSubspeciesOccurrencesByCountry(gbifUsageKey, regionCode).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+
+      // Unpack sightings result
+      const _sData = _sightingsRes.status === 'fulfilled' ? _sightingsRes.value : null;
+      if (_sData?._reuse) {
+        speciesCountrySightingsCount = _sData.count ?? null;
+        speciesRecentRecords = _sData.records;
+        logger.info(`[identify] Reused ebirdLocal sightings: count=${speciesCountrySightingsCount}, records=${speciesRecentRecords.length}`);
+      } else if (_sData) {
+        speciesCountrySightingsCount = _sData?.found ? (_sData.count ?? null) : null;
+        speciesRecentRecords = _sData?.records || [];
+        logger.info(`[identify] Sightings result: count=${speciesCountrySightingsCount}, records=${speciesRecentRecords.length}`);
+      }
+
+      // Unpack ISSF and GBIF subspecies results
+      const issfGroups = _issfRes.status === 'fulfilled' ? _issfRes.value : [];
+      const gbifSubspInCountry = _gbifSubspRes.status === 'fulfilled' ? _gbifSubspRes.value : [];
+
+      // Process subspecies data (requires ISSF + GBIF results from above)
       if (ebirdSpeciesCode) {
-        const regionCode = (locationCoords?.country_code || countryCode || '').toUpperCase();
-        const [issfGroups, gbifSubspInCountry] = await Promise.all([
-          regionCode ? getEBirdSubspecificGroups(ebirdSpeciesCode, regionCode).catch(() => []) : Promise.resolve([]),
-          (gbifUsageKey && regionCode) ? getSubspeciesOccurrencesByCountry(gbifUsageKey, regionCode).catch(() => []) : Promise.resolve([]),
-        ]);
         const geminiSubsp = data.taxonomy?.subspecies;
         const isSkip = v => !v || ['null', 'monotypic', 'unknown', 'none', ''].includes(String(v).toLowerCase().trim());
-        const getEpithet = name => name.trim().split(/\s+/).pop().toLowerCase();
+        // getEpithets handles slash taxa: "ernesti/nesiotes" → ["ernesti", "nesiotes"]
+        const getEpithet  = name => name.trim().split(/\s+/).pop().toLowerCase();
+        const getEpithets = name => getEpithet(name).split('/').map(p => p.trim()).filter(Boolean);
 
+        // ── Always build the canonical eBird-sourced subspecies list ──────────
+        const _noMonotypic = s => !['monotypic', 'null', 'none', ''].includes(String(s || '').toLowerCase().trim()) && !String(s || '').includes('[');
+        const ebirdSubspList = issfGroups.filter(_noMonotypic);
+
+        if (ebirdSubspList.length > 0) {
+          data.subspecies = ebirdSubspList;
+          data.subspeciesByLocation = true;
+          data.subspeciesLocation = country || options.location || regionCode || 'eBird';
+        }
+
+        // ── If Gemini also identified a subspecies from the image, record it ─
+        // This is stored separately so the canvas can flag it as image-confirmed.
         if (!isSkip(geminiSubsp)) {
-          // Gemini identified a subspecies — validate it against eBird ISSF then GBIF
           const epithet = getEpithet(String(geminiSubsp));
-          const issfMatch = issfGroups.find(g => getEpithet(g) === epithet);
+          const issfMatch = issfGroups.find(g => getEpithets(g).includes(epithet));
           if (issfMatch) {
-            data.subspecies = [issfMatch];
             data.subspeciesFromImage = true;
+            data.subspeciesImageMatch = issfMatch; // the specific ISSF group Gemini confirmed
           } else {
-            const gbifMatch = gbifSubspInCountry.find(s => getEpithet(s.name) === epithet);
+            const gbifMatch = gbifSubspInCountry.find(s => getEpithets(s.name).includes(epithet));
             if (gbifMatch) {
-              data.subspecies = [gbifMatch.name];
               data.subspeciesFromImage = true;
+              data.subspeciesImageMatch = gbifMatch.name;
             }
-            // If no match in either list, don't show subspecies section
-          }
-        } else {
-          // Gemini couldn't ID subspecies — derive from eBird ISSF + GBIF location records
-          const locationSubsp = [];
-          if (gbifSubspInCountry.length > 0 && issfGroups.length > 0) {
-            // Show ISSF groups that are confirmed by GBIF country occurrences (intersection)
-            for (const gbifSub of gbifSubspInCountry) {
-              const epithet = getEpithet(gbifSub.name);
-              const issfMatch = issfGroups.find(g => getEpithet(g) === epithet);
-              if (issfMatch) locationSubsp.push(issfMatch);
-            }
-            // No intersection — fall back to GBIF-only results sorted by occurrence count
-            if (locationSubsp.length === 0) {
-              gbifSubspInCountry.sort((a, b) => b.count - a.count).forEach(s => locationSubsp.push(s.name));
-            }
-          } else if (gbifSubspInCountry.length > 0) {
-            // No ISSF data — show GBIF results sorted by count
-            gbifSubspInCountry.sort((a, b) => b.count - a.count).forEach(s => locationSubsp.push(s.name));
-          } else if (issfGroups.length === 1) {
-            // Single ISSF subspecies for the region — safe to show
-            locationSubsp.push(issfGroups[0]);
-          }
-          if (locationSubsp.length > 0) {
-            data.subspecies = locationSubsp;
-            data.subspeciesByLocation = true;
-            data.subspeciesLocation = country || options.location || 'location';
           }
         }
       }
@@ -1375,8 +1336,8 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
           data.ebirdSightingsLocation = speciesSightingsLocation;
           // Local Status: prefer singaporebirds.com; fall back to GBIF country count + eBird
           if (!data.localStatus) {
-            const classified = classifyBirdLocalStatus({
-              gbifOccurrence: { count: gbifOcc.count || 0, monthsObservedCount: gbifOcc.monthsObservedCount || 0, breedingSignalCount: gbifOcc.breedingSignalCount || 0, establishmentMeans: gbifOcc.establishmentMeans || [] },
+            const classified = classifyLocalStatus({
+              gbifOccurrence: gbifOcc,
               ebirdSummary: ebirdLocal,
               migratoryStatus: data.migratoryStatus,
             });
@@ -1386,7 +1347,7 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
         }
       } else {
         // Non-Singapore: derive local status and abundance from GBIF + eBird
-        const classified = classifyBirdLocalStatus({
+        const classified = classifyLocalStatus({
           gbifOccurrence: gbifOcc,
           ebirdSummary: ebirdLocal,
           migratoryStatus: data.migratoryStatus,
@@ -1403,29 +1364,38 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
         }
       }
     } else {
-      // Non-bird: use GBIF for local presence
-      let nonBirdLocationCoords = locationCoords;
+      // Non-bird: use GBIF for local presence.
+      // _prefetchedCoords was already fetched in the first parallel block — reuse it.
+      const nonBirdLocationCoords = locationCoords || _prefetchedCoords || null;
       let nonBirdSightingsCount = null;
       let nonBirdSightingsLocation = options.location || '';
-      if (gbifUsageKey && options.location && !nonBirdLocationCoords) {
-        nonBirdLocationCoords = await geocodeLocation(options.location).catch(() => null);
-      }
 
-      if (gbifUsageKey && nonBirdLocationCoords) {
-        const occ = await checkOccurrencesAtLocation(gbifUsageKey, nonBirdLocationCoords).catch(() => ({ count: 0 }));
-        nonBirdSightingsCount = occ.count || 0;
-        nonBirdSightingsLocation = nonBirdLocationCoords.country || nonBirdLocationCoords.displayName || options.location || '';
-        const n = occ.count || 0;
-        if (n > 50)     data.localStatus = 'Common Locally';
-        else if (n > 5) data.localStatus = 'Present Locally';
-        else if (n > 0) data.localStatus = 'Rarely Recorded';
-        else            data.localStatus = 'Not Recorded Nearby';
-        const abundance = classifyAbundance({ gbifOccurrence: occ, ebirdSummary: { count: 0 } });
-        data.abundanceCode = abundance.code;
-        data.abundance = abundance.label;
-      } else if (gbifUsageKey) {
-        const globalCount = await getGlobalOccurrenceCount(gbifUsageKey).catch(() => null);
-        if (typeof globalCount === 'number') {
+      if (gbifUsageKey) {
+        // Run local occurrence + global count in parallel; only the relevant result is used.
+        const [_localOccRes, _globalCountRes] = await Promise.allSettled([
+          nonBirdLocationCoords
+            ? checkOccurrencesAtLocation(gbifUsageKey, nonBirdLocationCoords).catch(() => ({ count: 0 }))
+            : Promise.resolve(null),
+          !nonBirdLocationCoords
+            ? getGlobalOccurrenceCount(gbifUsageKey).catch(() => null)
+            : Promise.resolve(null),
+        ]);
+
+        const occ = _localOccRes.status === 'fulfilled' ? _localOccRes.value : null;
+        const globalCount = _globalCountRes.status === 'fulfilled' ? _globalCountRes.value : null;
+
+        if (occ) {
+          nonBirdSightingsCount = occ.count || 0;
+          nonBirdSightingsLocation = nonBirdLocationCoords.country || nonBirdLocationCoords.displayName || options.location || '';
+          const n = occ.count || 0;
+          if (n > 50)     data.localStatus = 'Common Locally';
+          else if (n > 5) data.localStatus = 'Present Locally';
+          else if (n > 0) data.localStatus = 'Rarely Recorded';
+          else            data.localStatus = 'Not Recorded Nearby';
+          const abundance = classifyAbundance({ gbifOccurrence: occ, ebirdSummary: { count: 0 } });
+          data.abundanceCode = abundance.code;
+          data.abundance = abundance.label;
+        } else if (typeof globalCount === 'number') {
           nonBirdSightingsCount = globalCount;
           nonBirdSightingsLocation = 'Global (GBIF)';
         }
@@ -1438,14 +1408,63 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
       }
     }
 
-    // Fetch Wikipedia image to use as the reference species photo in the canvas
+    // Fetch reference species photo starting from the identified taxonomy level.
+    // identificationLevel: "subspecies" | "species" | "genus" | "family"
     await setStatus('🖼️ Building result…');
     let wikiImageUrl = null;
-    const wikiLookupName = data.scientificName || data.commonName;
-    if (wikiLookupName) {
-      const wikiInfo = await getWikipediaInfo(wikiLookupName).catch(() => null);
-      if (wikiInfo && wikiInfo.imageUrl) wikiImageUrl = wikiInfo.imageUrl;
+    const idLevel = (data.identificationLevel || 'species').toLowerCase();
+    const atSpeciesOrBelow = idLevel === 'species' || idLevel === 'subspecies';
+
+    if (atSpeciesOrBelow) {
+      // Species-level: use primary source (eBird for birds, iNaturalist for others)
+      if (isBird) {
+        if (ebirdSpeciesCode) {
+          const ebirdPhoto = await getEBirdPhoto(ebirdSpeciesCode).catch(() => ({ found: false }));
+          if (ebirdPhoto.found) wikiImageUrl = ebirdPhoto.photoUrl;
+        }
+        if (!wikiImageUrl) {
+          const name = data.scientificName || data.commonName;
+          if (name) {
+            const wikiInfo = await getWikipediaInfo(name).catch(() => null);
+            if (wikiInfo?.imageUrl) wikiImageUrl = wikiInfo.imageUrl;
+          }
+        }
+      } else {
+        const inatPhoto = await getSpeciesPhoto(data.scientificName || data.commonName).catch(() => ({ found: false }));
+        if (inatPhoto?.found) wikiImageUrl = inatPhoto.photoUrl;
+        if (!wikiImageUrl) {
+          const name = data.scientificName || data.commonName;
+          if (name) {
+            const wikiInfo = await getWikipediaInfo(name).catch(() => null);
+            if (wikiInfo?.imageUrl) wikiImageUrl = wikiInfo.imageUrl;
+          }
+        }
+      }
     }
+
+    // Taxonomy-level fallback — starts from the deepest level Gemini identified to:
+    //   genus-level ID  → genus → family → order
+    //   family-level ID → family → order
+    //   species-level (photo still missing after above) → genus → family → order
+    if (!wikiImageUrl) {
+      const tx = data.taxonomy || {};
+      const allLevels = [
+        { level: 'genus',  name: tx.genus },
+        { level: 'family', name: tx.family },
+        { level: 'order',  name: tx.order },
+      ];
+      // Find the starting position based on identificationLevel
+      const startLevel = idLevel === 'family' ? 'family' : 'genus';
+      const startIdx = allLevels.findIndex(l => l.level === startLevel);
+      const fallbacks = allLevels.slice(startIdx).map(l => l.name).filter(Boolean);
+      for (const taxName of fallbacks) {
+        const wikiInfo = await getWikipediaInfo(taxName).catch(() => null);
+        if (wikiInfo?.imageUrl) { wikiImageUrl = wikiInfo.imageUrl; break; }
+      }
+    }
+
+    // Pre-compute display fields so imageService is pure rendering (no logic)
+    computeDisplayFields(data);
 
     const canvas = await createResultCanvas(wikiImageUrl, buffer, data);
     const usedToday   = await getTodayCount(chatId);
@@ -1523,11 +1542,97 @@ async function runIdentification(bot, chatId, buffer, mimeType, options) {
   }
 }
 
+// ── Rich detail message (sent after canvas photo) ────────────────────────────
+
+function buildDetailMessage(data, gbifNames, ebirdSpeciesCode) {
+  const h = escHtml;
+  const skip = v => !v || ['null', 'none', 'unknown', 'n/a', ''].includes(String(v).toLowerCase().trim());
+  const lines = [];
+
+  // ── Cross-reference verification ───────────────────────────────────────────
+  lines.push('<b>🔍 Cross-Reference Verification</b>');
+  if (gbifNames?.found) {
+    const gbifSci = gbifNames.scientificName || data.scientificName || '';
+    const gbifRank = gbifNames.rank || 'SPECIES';
+    lines.push(`✅ <b>GBIF:</b> <i>${h(gbifSci)}</i> (${h(gbifRank)})`);
+  } else {
+    lines.push('❓ <b>GBIF:</b> Not found');
+  }
+  const tax = data.taxonomy || {};
+  const isBirdDetail = ['aves', 'bird'].some(k => (tax.class || '').toLowerCase().includes(k));
+  if (isBirdDetail) {
+    if (ebirdSpeciesCode) {
+      lines.push(`✅ <b>eBird:</b> ${h(data.commonName || '')} <code>${h(ebirdSpeciesCode)}</code>`);
+    } else {
+      lines.push('❓ <b>eBird:</b> Not found');
+    }
+  }
+
+  // ── Taxonomy ──────────────────────────────────────────────────────────────
+  const taxParts = [tax.class, tax.order, tax.family].filter(Boolean);
+  if (taxParts.length > 0) {
+    lines.push('');
+    lines.push(`<b>🧬 Taxonomy:</b> ${taxParts.map(h).join(' › ')}`);
+  }
+
+  // ── Observation details ───────────────────────────────────────────────────
+  const obsLines = [];
+  if (!skip(data.viewAngle)) obsLines.push(`📐 <b>View:</b> ${h(data.viewAngle)}`);
+  if (!skip(data.migratoryStatus)) obsLines.push(`🌍 <b>Migratory status:</b> ${h(data.migratoryStatus)}`);
+  if (!skip(data.breedingPlumage) && String(data.breedingPlumage).toLowerCase() !== 'no')
+    obsLines.push(`🪺 <b>Breeding plumage:</b> ${h(data.breedingPlumage)}`);
+  if (obsLines.length > 0) { lines.push(''); lines.push(...obsLines); }
+
+  // ── Scene description ─────────────────────────────────────────────────────
+  if (!skip(data.sceneDescription)) {
+    lines.push('');
+    lines.push('<b>🌿 Scene</b>');
+    lines.push(h(data.sceneDescription));
+  }
+
+  // ── Plumage notes ─────────────────────────────────────────────────────────
+  if (!skip(data.plumageNotes)) {
+    lines.push('');
+    lines.push('<b>🪶 Plumage notes</b>');
+    lines.push(h(data.plumageNotes));
+  }
+
+  // ── Sexual dimorphism ─────────────────────────────────────────────────────
+  if (!skip(data.sexualDimorphism)) {
+    lines.push('');
+    lines.push('<b>♀♂ Sexual dimorphism</b>');
+    lines.push(h(data.sexualDimorphism));
+  }
+
+  // ── Identification reasoning ──────────────────────────────────────────────
+  if (!skip(data.identificationReasoning)) {
+    lines.push('');
+    lines.push('<b>📋 Identification reasoning</b>');
+    const r = data.identificationReasoning;
+    lines.push(h(r.length > 700 ? r.slice(0, 700) + '…' : r));
+  }
+
+  // ── Similar species ruled out ─────────────────────────────────────────────
+  if (Array.isArray(data.similarSpeciesRuledOut) && data.similarSpeciesRuledOut.length > 0) {
+    lines.push('');
+    lines.push('<b>❌ Similar species ruled out</b>');
+    for (const item of data.similarSpeciesRuledOut) {
+      lines.push(`• ${h(String(item))}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 // ── Caption with clickable links (shown below the canvas photo) ───────────────
 
 function buildCaption(data, ebirdSpeciesCode, inatSlug, remaining, dailyLimit) {
   const sci = encodeURIComponent(data.scientificName || data.commonName || '');
   const isBird = (data.taxonomy && ['aves', 'bird'].some(k => (data.taxonomy.class || '').toLowerCase().includes(k)));
+
+  const used = dailyLimit - remaining;
+  const limitLine = `🔢 Identifications today: ${used} / ${dailyLimit}  (${remaining} remaining)`;
+
   const links = [];
   if (isBird) {
     if (ebirdSpeciesCode) {
@@ -1541,8 +1646,6 @@ function buildCaption(data, ebirdSpeciesCode, inatSlug, remaining, dailyLimit) {
     links.push(`🔬 <a href="${inatUrl}">iNaturalist</a>`);
   }
   links.push(`📖 <a href="https://en.wikipedia.org/wiki/${sci}">Wikipedia</a>`);
-  const limitLine = (typeof remaining === 'number' && typeof dailyLimit === 'number')
-    ? `🔢 ${remaining}/${dailyLimit} identifications remaining today`
-    : null;
-  return [limitLine, links.join('  ·  ')].filter(Boolean).join('\n');
+
+  return `${limitLine}\n${links.join('  ·  ')}`;
 }

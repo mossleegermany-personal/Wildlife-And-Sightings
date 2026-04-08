@@ -1,0 +1,91 @@
+/* ── Layout shell ── */
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.site-header {
+  background: linear-gradient(180deg, #152a16 0%, #1c3a1f 100%);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.site-header__top {
+  background: linear-gradient(135deg, #152916 0%, #1e3e22 55%, #244a28 100%);
+  padding: 16px 24px 10px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
+  position: relative;
+  z-index: 1;
+}
+
+.site-header__nav-bar {
+  background: linear-gradient(90deg, #1a3d1e 0%, #2e5e32 50%, #3a6a3e 100%);
+  padding: 0 24px;
+}
+
+.site-header__logo {
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  font-family: 'Georgia', serif;
+  color: #d4edaa;
+}
+
+.site-header__logo-secret {
+  cursor: default;
+  user-select: none;
+}
+
+.site-header__nav {
+  display: flex;
+  gap: 0;
+}
+
+.site-header__nav a {
+  color: #a8c8a0;
+  text-decoration: none;
+  font-size: 0.82rem;
+  padding: 10px 16px;
+  display: inline-block;
+  border-bottom: 2px solid transparent;
+  font-family: system-ui, sans-serif;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.site-header__nav a:hover {
+  color: #e8f5d0;
+  border-bottom-color: #a3d977;
+}
+
+.site-header__nav a.active {
+  color: #d4edaa;
+  border-bottom-color: #7ec850;
+  font-weight: 600;
+}
+
+.site-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: linear-gradient(160deg, #eef5e6 0%, #f4f7f2 45%, #ecf5e4 100%);
+}
+
+.site-footer {
+  background: linear-gradient(90deg, #152916 0%, #1c3a1f 50%, #244a28 100%);
+  border-top: 2px solid #2d5a30;
+  text-align: left;
+  padding: 14px 26px;
+  font-size: 0.72rem;
+  color: #7aab72;
+  flex-shrink: 0;
+  font-family: system-ui, sans-serif;
+  letter-spacing: 0.02em;
+}
+
+.site-footer p {
+  text-align: left;
+}

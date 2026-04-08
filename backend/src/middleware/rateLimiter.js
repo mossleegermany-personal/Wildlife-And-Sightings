@@ -10,7 +10,7 @@ const rateLimit = require('express-rate-limit');
 
 const windowMs = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10);
 const maxGeneral = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '60', 10);
-const maxIdentify = parseInt(process.env.IDENTIFY_RATE_LIMIT_MAX || '10', 10);
+const maxIdentify = parseInt(process.env.IDENTIFY_RATE_LIMIT_MAX || '30', 10);
 
 const generalLimiter = rateLimit({
   windowMs,

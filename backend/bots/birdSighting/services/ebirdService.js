@@ -26,36 +26,51 @@ let _issfTimestamp = 0;
 const _regionalSppCache = new Map(); // regionCode → { codes: Set, ts: number }
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
+// In-flight promise guards — prevent duplicate downloads when callers race.
+let _taxonomyLoadPromise = null;
+let _issfLoadPromise = null;
+
 async function _loadTaxonomy(apiKey) {
   const now = Date.now();
   if (_taxonomyCache && now - _cacheTimestamp < CACHE_TTL) {
     return _taxonomyCache;
   }
+  // Reuse an in-flight download rather than kicking off a second one.
+  if (_taxonomyLoadPromise) return _taxonomyLoadPromise;
 
-  logger.info('Downloading eBird taxonomy...');
-  const response = await axios.get(`${EBIRD_BASE}/ref/taxonomy/ebird`, {
-    params: { fmt: 'json', cat: 'species' },
-    headers: { 'X-eBirdApiToken': apiKey },
-    timeout: 30000,
-  });
+  _taxonomyLoadPromise = (async () => {
+    logger.info('Downloading eBird taxonomy...');
+    const response = await axios.get(`${EBIRD_BASE}/ref/taxonomy/ebird`, {
+      params: { fmt: 'json', cat: 'species' },
+      headers: { 'X-eBirdApiToken': apiKey, 'Accept-Encoding': 'gzip, deflate' },
+      timeout: 30000,
+    });
+    _taxonomyCache = response.data;
+    _cacheTimestamp = Date.now();
+    logger.info('eBird taxonomy cached', { species: _taxonomyCache.length });
+    return _taxonomyCache;
+  })().finally(() => { _taxonomyLoadPromise = null; });
 
-  _taxonomyCache = response.data;
-  _cacheTimestamp = now;
-  logger.info('eBird taxonomy cached', { species: _taxonomyCache.length });
-  return _taxonomyCache;
+  return _taxonomyLoadPromise;
 }
 
 async function _loadIssfTaxonomy(apiKey) {
   const now = Date.now();
   if (_issfCache && now - _issfTimestamp < CACHE_TTL) return _issfCache;
-  const response = await axios.get(`${EBIRD_BASE}/ref/taxonomy/ebird`, {
-    params: { fmt: 'json', cat: 'issf' },
-    headers: { 'X-eBirdApiToken': apiKey },
-    timeout: 30000,
-  });
-  _issfCache = response.data;
-  _issfTimestamp = now;
-  return _issfCache;
+  if (_issfLoadPromise) return _issfLoadPromise;
+
+  _issfLoadPromise = (async () => {
+    const response = await axios.get(`${EBIRD_BASE}/ref/taxonomy/ebird`, {
+      params: { fmt: 'json', cat: 'issf' },
+      headers: { 'X-eBirdApiToken': apiKey, 'Accept-Encoding': 'gzip, deflate' },
+      timeout: 30000,
+    });
+    _issfCache = response.data;
+    _issfTimestamp = Date.now();
+    return _issfCache;
+  })().finally(() => { _issfLoadPromise = null; });
+
+  return _issfLoadPromise;
 }
 
 /**

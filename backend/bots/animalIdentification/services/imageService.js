@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 const logger = require('../../../src/utils/logger');
+const { shouldShowSex, getEpithetDisplay } = require('./enrichmentUtils');
 
 const PANEL_WIDTH = 400;
 const IMAGE_HEIGHT = 400;
@@ -141,10 +142,11 @@ function buildInfoPanelSvg(data) {
   const country = truncate(renderSafeText(data.country || '', ''), 30);
 
   const badges = [];
-  const sexConf = typeof data.sexConfidence === 'number' ? data.sexConfidence : 1.0;
-  const sexMethodVal = String(data.sexMethod || '').toLowerCase();
-  const showSexSvg = sexConf >= 0.55 || sexMethodVal === 'from_image_plumage' || sexMethodVal === 'from_species_knowledge';
-  if (sex && sex !== 'Unknown' && showSexSvg) badges.push(sex);
+  if (data.displaySex) {
+    badges.push(data.displaySex);
+  } else if (sex && sex !== 'Unknown' && shouldShowSex(data)) {
+    badges.push(sex);
+  }
   if (lifeStage && lifeStage !== 'Unknown' && lifeStage !== 'Adult') badges.push(lifeStage);
   if (morph && morph !== 'None' && morph !== 'N/A') badges.push(morph);
 
@@ -338,15 +340,14 @@ async function buildResultPanelCanvas(data, W, H) {
   if (iucn.label && !iucnSkip.includes(iucn.label.trim())) {
     headerBadges.push({ label: cleanBadgeLabel(iucn.label), color: '#22c55e' });
   }
-  if (!skip(sexVal) && sexVal !== 'Unknown') {
-    const sexConf = typeof data.sexConfidence === 'number' ? data.sexConfidence : 1.0;
-    const sexMethodVal = String(data.sexMethod || '').toLowerCase();
-    const showSex = sexConf >= 0.55 || sexMethodVal === 'from_image_plumage' || sexMethodVal === 'from_species_knowledge';
-    let sexLabel, sexTextColor;
-    if (sexVal.toLowerCase() === 'male') { sexLabel = 'Male'; sexTextColor = '#3b82f6'; }
-    else if (sexVal.toLowerCase() === 'female') { sexLabel = 'Female'; sexTextColor = '#ec4899'; }
-    else { sexLabel = null; sexTextColor = null; }
-    if (sexLabel && showSex) headerBadges.push({ label: sexLabel, color: '#2dd4bf', textColor: sexTextColor });
+  {
+    const resolvedSex = data.displaySex || ((!skip(sexVal) && sexVal !== 'Unknown' && shouldShowSex(data)) ? sexVal : null);
+    if (resolvedSex) {
+      const isMale = resolvedSex.toLowerCase() === 'male';
+      const sexLabel = isMale ? '♂ Male' : '♀ Female';
+      const sexTextColor = isMale ? '#3b82f6' : '#ec4899';
+      headerBadges.push({ label: sexLabel, color: '#2dd4bf', textColor: sexTextColor });
+    }
   }
   if (!skip(lifeStageVal)) {
     headerBadges.push({ label: cleanBadgeLabel(lifeStageVal), color: '#fb923c' });
@@ -410,19 +411,24 @@ async function buildResultPanelCanvas(data, W, H) {
     curY += 26;
   }
 
-  if (Array.isArray(data.subspecies) && data.subspecies.length > 0 && (data.subspeciesFromImage || data.subspeciesByLocation)) {
-    curY += 6;
-    const subspLabel = data.subspeciesFromImage ? 'Subspecies (from image):' : `Subspecies (${data.subspeciesLocation || 'location'}):`;
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = "13px 'Wildlife Sans', Arial, sans-serif";
-    ctx.fillText(renderSafeText(subspLabel, 'Subspecies:'), 16, curY);
-    curY += 20;
-    ctx.fillStyle = '#86efac';
-    for (const grp of data.subspecies.slice(0, 6)) {
-      const parts = String(grp || '').trim().split(/\s+/);
-      const epithet = parts.length >= 3 ? parts.slice(2).join(' ') : grp;
-      ctx.fillText(`- ${renderSafeText(epithet, 'subspecies')}`, 24, curY);
-      curY += 18;
+  {
+    // Use pre-computed display fields; fall back to deriving from raw fields for robustness
+    const subsp   = data.displaySubspecies   ?? (data.subspeciesImageMatch ? getEpithetDisplay(data.subspeciesImageMatch) : null);
+    const subLabel = data.displaySubspeciesLabel ?? (data.subspeciesFromImage ? 'Subspecies' : `Subspecies (${data.subspeciesLocation || 'location'})`);
+    if (subsp) {
+      curY += 6;
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = "13px 'Wildlife Sans', Arial, sans-serif";
+      ctx.fillText(renderSafeText(subLabel, 'Subspecies'), 16, curY);
+      curY += 20;
+      ctx.fillStyle = '#86efac';
+      ctx.font = "italic 13px 'Wildlife Sans', Arial, sans-serif";
+      const epithets = Array.isArray(subsp) ? subsp.slice(0, 6) : [subsp];
+      for (const epithet of epithets) {
+        ctx.fillText(`- ${renderSafeText(epithet, 'subspecies')}`, 24, curY);
+        curY += 18;
+      }
+      ctx.font = "13px 'Wildlife Sans', Arial, sans-serif";
     }
   }
 
@@ -475,8 +481,8 @@ function buildResultPanel(data, W, H) {
   // 3. Sex
   if (!_skip(sexVal) && sexVal !== 'Unknown') {
     let sexLabel, sexTextColor;
-    if (sexVal.toLowerCase() === 'male') { sexLabel = 'Male'; sexTextColor = '#3b82f6'; }
-    else if (sexVal.toLowerCase() === 'female') { sexLabel = 'Female'; sexTextColor = '#ec4899'; }
+    if (sexVal.toLowerCase() === 'male') { sexLabel = '♂ Male'; sexTextColor = '#3b82f6'; }
+    else if (sexVal.toLowerCase() === 'female') { sexLabel = '♀ Female'; sexTextColor = '#ec4899'; }
     else { sexLabel = null; sexTextColor = null; } // N/A or anything else — skip
     if (sexLabel) headerBadges.push({ label: sexLabel, color: '#2dd4bf', textColor: sexTextColor });
   }
@@ -544,17 +550,19 @@ function buildResultPanel(data, W, H) {
     curY += 26;
   });
   // eBird Identifiable Sub-specific Groups (ISSF) — shown when confirmed from image or derived from location
-  if (data.subspecies && Array.isArray(data.subspecies) && data.subspecies.length > 0 && (data.subspeciesFromImage || data.subspeciesByLocation)) {
-    curY += 6;
-    const subspLabel = data.subspeciesFromImage ? 'Subspecies (from image):' : `Subspecies (${data.subspeciesLocation || 'location'}):`;
-    nameSvg += `<text x="16" y="${curY}" font-size="13" fill="#94a3b8" font-family="${FONT_FAMILY}">${escSvg(renderSafeText(subspLabel, 'Subspecies:'))}</text>`;
-    curY += 20;
-    for (const grp of data.subspecies.slice(0, 6)) {
-      // Trinomial e.g. "Falco peregrinus ernesti" → show only "ernesti"
-      const parts = (grp || '').trim().split(/\s+/);
-      const epithet = parts.length >= 3 ? parts.slice(2).join(' ') : grp;
-      nameSvg += `<text x="24" y="${curY}" font-size="13" fill="#86efac" font-style="italic" font-family="${FONT_FAMILY}">- ${escSvg(renderSafeText(epithet, 'subspecies'))}</text>`;
-      curY += 18;
+  {
+    // Use pre-computed display fields; fall back to deriving from raw fields for robustness
+    const subsp    = data.displaySubspecies   ?? (data.subspeciesImageMatch ? getEpithetDisplay(data.subspeciesImageMatch) : null);
+    const subLabel = data.displaySubspeciesLabel ?? (data.subspeciesFromImage ? 'Subspecies' : `Subspecies (${data.subspeciesLocation || 'location'})`);
+    if (subsp) {
+      curY += 6;
+      nameSvg += `<text x="16" y="${curY}" font-size="13" fill="#94a3b8" font-family="${FONT_FAMILY}">${escSvg(subLabel)}</text>`;
+      curY += 20;
+      const epithets = Array.isArray(subsp) ? subsp.slice(0, 6) : [subsp];
+      for (const epithet of epithets) {
+        nameSvg += `<text x="24" y="${curY}" font-size="13" fill="#86efac" font-style="italic" font-family="${FONT_FAMILY}">- ${escSvg(renderSafeText(epithet, 'subspecies'))}</text>`;
+        curY += 18;
+      }
     }
   }
 

@@ -1,0 +1,319 @@
+/* ── Empty state ──────────────────────────────────────────── */
+.home-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 60px 40px;
+  text-align: center;
+}
+
+.home-empty__icon {
+  width: 64px;
+  height: 64px;
+  color: #b8d8b0;
+}
+
+.home-empty__icon svg { width: 100%; height: 100%; }
+
+.home-empty__title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #2d5a30;
+  margin: 0;
+  font-family: system-ui, sans-serif;
+}
+
+.home-empty__sub {
+  font-size: 0.9rem;
+  color: #8aaa80;
+  margin: 0;
+  font-family: system-ui, sans-serif;
+}
+
+/* ── Section page wrapper ─────────────────────────────────── */
+.hs-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 36px 40px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+/* ── Hero block ───────────────────────────────────────────── */
+.hs-hero {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  background: #fff;
+  border: 1px solid #e2edd8;
+  border-radius: 16px;
+  padding: 32px 32px 28px;
+  box-shadow: 0 2px 16px rgba(36, 74, 40, 0.07);
+}
+
+.hs-hero--compact {
+  padding-bottom: 24px;
+}
+
+.hs-hero__icon {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #e6f5d8 0%, #d4edaa 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #2d6a2d;
+}
+
+.hs-hero__icon--sky {
+  background: linear-gradient(135deg, #daeeff 0%, #b8d9f8 100%);
+  color: #1a6da8;
+}
+
+.hs-hero__icon svg { width: 28px; height: 28px; }
+
+.hs-hero__text {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.hs-hero__title {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #162e18;
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  line-height: 1.2;
+}
+
+.hs-hero__desc {
+  font-size: 0.9rem;
+  color: #5a7a54;
+  margin: 0;
+  line-height: 1.65;
+  font-family: system-ui, sans-serif;
+  max-width: 560px;
+}
+
+.hs-hero__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  align-self: flex-start;
+  padding: 11px 22px;
+  border: none;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #3a7a3e 0%, #2d6a2d 100%);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-family: system-ui, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(45, 106, 45, 0.28);
+  transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+
+.hs-hero__cta svg { width: 17px; height: 17px; flex-shrink: 0; }
+
+.hs-hero__cta:hover {
+  background: linear-gradient(135deg, #4a8e4e 0%, #3a7a3e 100%);
+  box-shadow: 0 4px 16px rgba(45, 106, 45, 0.38);
+  transform: translateY(-1px);
+}
+
+.hs-hero__cta:active { transform: translateY(0); }
+
+/* ── Feature grid (Animal ID) ─────────────────────────────── */
+.hs-features {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.hs-features__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #8aaa80;
+  margin: 0;
+  font-family: system-ui, sans-serif;
+}
+
+.hs-features__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.hs-feat-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid #e8f0e4;
+  border-radius: 11px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+
+.hs-feat-card__dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #7ec850;
+}
+
+.hs-feat-card__title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #1e3e22;
+  margin: 0 0 4px;
+  font-family: system-ui, sans-serif;
+}
+
+.hs-feat-card__desc {
+  font-size: 0.78rem;
+  color: #6a8a62;
+  margin: 0;
+  line-height: 1.55;
+  font-family: system-ui, sans-serif;
+}
+
+/* ── Chips row ────────────────────────────────────────────── */
+.hs-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.hs-chips__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #9ab890;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-family: system-ui, sans-serif;
+  margin-right: 2px;
+}
+
+.hs-chip {
+  padding: 4px 12px;
+  border-radius: 99px;
+  border: 1px solid #d4ecbe;
+  background: #f4fbee;
+  font-size: 0.775rem;
+  font-weight: 500;
+  color: #3a7a3e;
+  font-family: system-ui, sans-serif;
+}
+
+/* ── Bird feature cards ───────────────────────────────────── */
+.hs-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.hs-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  background: #fff;
+  border: 1.5px solid #e2edd8;
+  border-radius: 13px;
+  padding: 20px 20px 16px;
+  cursor: pointer;
+  text-align: left;
+  font-family: system-ui, sans-serif;
+  box-shadow: 0 1px 6px rgba(36, 74, 40, 0.05);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s, transform 0.12s;
+  position: relative;
+}
+
+.hs-card:hover {
+  border-color: #7ec850;
+  background: #fafdf7;
+  box-shadow: 0 4px 18px rgba(126, 200, 80, 0.18);
+  transform: translateY(-2px);
+}
+
+.hs-card--active {
+  border-color: #7ec850;
+  background: #f2fbe8;
+  box-shadow: 0 4px 18px rgba(126, 200, 80, 0.22);
+}
+
+.hs-card__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: #eef5e8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3a7a3e;
+  flex-shrink: 0;
+}
+
+.hs-card--active .hs-card__icon {
+  background: #d8f0c0;
+}
+
+.hs-card__icon svg { width: 18px; height: 18px; }
+
+.hs-card__title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #1e3e22;
+}
+
+.hs-card__desc {
+  font-size: 0.78rem;
+  color: #6a8a62;
+  line-height: 1.55;
+  flex: 1;
+}
+
+.hs-card__arrow {
+  font-size: 0.85rem;
+  color: #b8dca8;
+  transition: color 0.15s, transform 0.15s;
+  margin-top: auto;
+  align-self: flex-end;
+}
+
+.hs-card:hover .hs-card__arrow,
+.hs-card--active .hs-card__arrow {
+  color: #7ec850;
+  transform: translateX(3px);
+}
+
+/* ── Responsive ───────────────────────────────────────────── */
+@media (max-width: 680px) {
+  .hs-page          { padding: 20px 16px 36px; gap: 24px; }
+  .hs-hero          { flex-direction: column; gap: 16px; padding: 22px 18px 20px; }
+  .hs-hero__icon    { width: 48px; height: 48px; }
+  .hs-features__grid { grid-template-columns: 1fr; }
+  .hs-cards         { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 420px) {
+  .hs-cards { grid-template-columns: 1fr; }
+}
+

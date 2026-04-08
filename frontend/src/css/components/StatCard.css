@@ -1,0 +1,124 @@
+/* ── Stat card grid ── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px;
+  margin-bottom: 0;
+}
+
+/* ── Stat card ── */
+.stat-card {
+  background: linear-gradient(145deg, #ffffff 0%, #f2f9ec 100%);
+  border: 1px solid #cdddc5;
+  border-radius: 10px;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 2px 8px rgba(44,80,30,0.07);
+  transition: box-shadow 0.2s, transform 0.2s, background 0.2s;
+}
+
+.stat-card:hover {
+  background: linear-gradient(145deg, #f5fdf0 0%, #e8f5dc 100%);
+  box-shadow: 0 6px 20px rgba(44,80,30,0.16);
+  transform: translateY(-2px);
+}
+
+.stat-card--accent {
+  background: linear-gradient(135deg, #162e18 0%, #2d5a30 55%, #3d7840 100%);
+  border-color: #1c3a1f;
+}
+
+.stat-card--accent .stat-card__value,
+.stat-card--accent .stat-card__label {
+  color: #d4edaa;
+}
+
+.stat-card__value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #1c2b1a;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-family: 'Georgia', serif;
+}
+
+.stat-card__label {
+  font-size: 0.68rem;
+  color: #5a8a54;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: system-ui, sans-serif;
+}
+
+.stat-card__sub {
+  font-size: 0.68rem;
+  color: #8aaa80;
+  margin-top: 2px;
+  font-family: system-ui, sans-serif;
+}
+
+/* ── Dashboard section ── */
+.dashboard-section {
+  margin-bottom: 28px;
+}
+
+.dashboard-section__title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: linear-gradient(90deg, #3a7a2a, #6aaa40);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 12px;
+  font-family: system-ui, sans-serif;
+}
+
+/* ── Breakdown list ── */
+.breakdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.breakdown-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.82rem;
+  font-family: system-ui, sans-serif;
+}
+
+.breakdown-row__label {
+  min-width: 170px;
+  color: #2d4a2a;
+  font-weight: 500;
+}
+
+.breakdown-row__bar-wrap {
+  flex: 1;
+  background: linear-gradient(90deg, #d8edd0, #e8f5dc);
+  border-radius: 99px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.breakdown-row__bar {
+  height: 100%;
+  background: linear-gradient(90deg, #1e6012 0%, #3a9a1e 35%, #6acc36 70%, #a8e860 100%);
+  border-radius: 99px;
+  transition: width 0.5s cubic-bezier(.4,0,.2,1);
+  box-shadow: 0 1px 4px rgba(58,154,30,0.3);
+}
+
+.breakdown-row__count {
+  min-width: 36px;
+  text-align: right;
+  color: #5a8a54;
+  font-size: 0.78rem;
+  font-weight: 700;
+}

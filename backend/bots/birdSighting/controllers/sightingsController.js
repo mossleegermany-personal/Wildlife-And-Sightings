@@ -120,6 +120,15 @@ exports.getBySpecies = async (req, res, next) => {
 
   try {
     const observations = await ebird.getSpeciesObservations(regionCode, speciesCode, back);
+    // Enrich with ML media (best-effort, in parallel, cap at first 20 obs)
+    await Promise.allSettled(
+      observations.slice(0, 20)
+        .filter(o => o.subId && o.speciesCode)
+        .map(async (obs) => {
+          const ml = await ebird.getMLMediaForChecklist(obs.speciesCode, obs.subId);
+          if (ml) obs.mlMedia = ml;
+        })
+    );
     return res.json({ regionCode, speciesCode, count: observations.length, observations });
   } catch (err) {
     next(err);

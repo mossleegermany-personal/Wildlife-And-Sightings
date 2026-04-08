@@ -1,0 +1,173 @@
+/* ── Table wrapper & grid container ── */
+.dt-wrapper {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(20, 50, 18, 0.13), 0 1.5px 6px rgba(20, 50, 18, 0.07);
+  border: 1.5px solid #c8dcc0;
+}
+
+.dt-grid {
+  height: 100%;
+  width: 100%;
+}
+
+/* ── Empty state ── */
+.dt-empty {
+  padding: 32px;
+  text-align: center;
+  color: #7a9e70;
+  font-size: 0.9rem;
+}
+
+/* ── Root wrapper: no extra borders ── */
+.ag-root-wrapper,
+.ag-root-wrapper-body,
+.ag-body-viewport,
+.ag-center-cols-viewport,
+.ag-floating-bottom,
+.ag-floating-top {
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+/* ── Remove ALL vertical/horizontal cell borders ── */
+.ag-cell,
+.ag-row,
+.ag-header-row,
+.ag-header-cell,
+[class*='ag-header-cell'],
+[class*='ag-cell'] {
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-bottom: none !important;
+}
+
+/* ── Remove resize handles ── */
+.ag-header-cell-resize,
+.ag-header-cell-resize::after,
+.ag-header-cell-resize::before,
+[class*='ag-header-cell-resize'] {
+  display: none !important;
+  width: 0 !important;
+  pointer-events: none !important;
+}
+
+/* ── Header ── */
+.ag-header {
+  background: linear-gradient(135deg, #162e18 0%, #1e4022 50%, #2d5a30 100%) !important;
+  border-bottom: 2px solid #3a6a3e !important;
+}
+
+.ag-header-cell-text {
+  color: #d4edaa !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.75em;
+}
+
+.ag-header-cell:hover {
+  background: rgba(255, 255, 255, 0.07) !important;
+}
+
+/* ── Row styling ── */
+.ag-row {
+  border-bottom: 1px solid #deecd6 !important;
+  transition: background 0.15s ease;
+}
+
+.ag-row:last-child {
+  border-bottom: none !important;
+}
+
+.ag-row-even {
+  background-color: #ffffff !important;
+}
+
+.ag-row-odd {
+  background-color: #f4fbee !important;
+}
+
+.ag-row-hover {
+  background-color: #e0f4d0 !important;
+  border-left: 3px solid #4a8a3a !important;
+}
+
+/* ── Cell text ── */
+.ag-cell {
+  color: #1f3320;
+  font-size: 0.95em;
+  display: flex;
+  align-items: center;
+}
+
+/* ── Sorted column highlight ── */
+.ag-header-cell.ag-header-cell-sorted {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.ag-sort-indicator-icon {
+  color: #a8d890 !important;
+}
+
+/* ── Pagination bar ── */
+.ag-paging-panel {
+  background: linear-gradient(135deg, #152916 0%, #1e4022 50%, #2d5a30 100%) !important;
+  color: #d4edaa !important;
+  border-top: 2px solid #3a6a3e !important;
+  box-shadow: none !important;
+  padding: 0 20px !important;
+  font-family: system-ui, sans-serif !important;
+  font-size: 0.7em !important;
+  min-height: 44px !important;
+}
+
+.ag-paging-panel .ag-paging-button,
+.ag-paging-panel button {
+  color: #a8d890 !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid #3a6a3e !important;
+  border-radius: 6px !important;
+  transition: background 0.15s, color 0.15s !important;
+}
+
+.ag-paging-panel .ag-paging-button:hover,
+.ag-paging-panel button:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+  color: #d4edaa !important;
+}
+
+.ag-paging-panel .ag-paging-button[disabled] {
+  opacity: 0.3 !important;
+}
+
+.ag-paging-panel .ag-paging-page-summary-panel,
+.ag-paging-panel .ag-paging-row-summary-panel {
+  color: #a8d890 !important;
+  font-weight: 500 !important;
+}
+
+/* ── Scrollbar styling ── */
+.ag-body-viewport::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.ag-body-viewport::-webkit-scrollbar-track {
+  background: #f0f9e8;
+}
+
+.ag-body-viewport::-webkit-scrollbar-thumb {
+  background: #9abf8a;
+  border-radius: 3px;
+}
+
+.ag-body-viewport::-webkit-scrollbar-thumb:hover {
+  background: #4a8a3a;
+}
+

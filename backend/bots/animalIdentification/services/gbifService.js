@@ -13,6 +13,21 @@ const logger = require('../../../src/utils/logger');
 const GBIF_API = 'https://api.gbif.org/v1';
 const NOMINATIM_API = 'https://nominatim.openstreetmap.org';
 
+// ─── Performance helpers ──────────────────────────────────────────────────────
+
+const SPECIES_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const _speciesInfoCache = new Map(); // normalized binomial → { result, ts }
+
+/**
+ * fetch() wrapper that aborts after `ms` milliseconds to prevent pipeline hangs.
+ */
+function fetchWithTimeout(url, options = {}, ms = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 /** Reverse-geocode lat/lng to a country code using Nominatim. */
@@ -64,10 +79,17 @@ async function geocodeLocation(locationName) {
 
 /** Fetch species info from GBIF, resolving synonyms to accepted names. */
 async function getSpeciesInfo(scientificName) {
+  const _cacheKey = scientificName.split(' ').slice(0, 2).join(' ').toLowerCase();
+  const _cached = _speciesInfoCache.get(_cacheKey);
+  if (_cached && Date.now() - _cached.ts < SPECIES_CACHE_TTL) {
+    logger.debug('GBIF species cache hit', { name: _cacheKey });
+    return _cached.result;
+  }
+
   try {
     const name = scientificName.split(' ').slice(0, 2).join(' ');
     const url = `${GBIF_API}/species/match?name=${encodeURIComponent(name)}&verbose=true`;
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
     const data = await response.json();
 
     if (!data.usageKey) return { found: false };
@@ -87,6 +109,7 @@ async function getSpeciesInfo(scientificName) {
       family: data.family,
       genus: data.genus,
       species: data.species,
+      iucnThreatStatus: data.iucnThreatStatus || null,
       isSynonym: false,
       acceptedName: null,
       acceptedKey: null,
@@ -95,7 +118,7 @@ async function getSpeciesInfo(scientificName) {
     // Resolve synonym → accepted name
     if (data.status === 'SYNONYM' && data.acceptedUsageKey) {
       logger.debug(`"${name}" is a GBIF synonym — fetching accepted name`);
-      const accRes = await fetch(`${GBIF_API}/species/${data.acceptedUsageKey}`);
+      const accRes = await fetchWithTimeout(`${GBIF_API}/species/${data.acceptedUsageKey}`, {}, 6000);
       const accData = await accRes.json();
 
       if (accData) {
@@ -109,7 +132,7 @@ async function getSpeciesInfo(scientificName) {
           && accData.speciesKey !== accData.key
         ) {
           try {
-            const spRes = await fetch(`${GBIF_API}/species/${accData.speciesKey}`);
+            const spRes = await fetchWithTimeout(`${GBIF_API}/species/${accData.speciesKey}`, {}, 6000);
             const spData = await spRes.json();
             if (spData && spData.key) {
               resolvedData = spData;
@@ -132,11 +155,17 @@ async function getSpeciesInfo(scientificName) {
         result.canonicalName = resolvedData.canonicalName;
         result.key = resolvedData.key;
         result.rank = resolvedData.rank || result.rank;
+        result.kingdom = resolvedData.kingdom || result.kingdom;
+        result.phylum = resolvedData.phylum || result.phylum;
+        result.class = resolvedData.class || result.class;
+        result.order = resolvedData.order || result.order;
+        result.family = resolvedData.family || result.family;
         result.genus = resolvedData.genus || result.genus;
         result.species = resolvedData.species || result.species;
+        result.iucnThreatStatus = resolvedData.iucnThreatStatus || accData.iucnThreatStatus || result.iucnThreatStatus || null;
 
         // Fetch English vernacular name
-        const vernRes = await fetch(`${GBIF_API}/species/${resolvedData.key}/vernacularNames`);
+        const vernRes = await fetchWithTimeout(`${GBIF_API}/species/${resolvedData.key}/vernacularNames`, {}, 5000);
         const vernData = await vernRes.json();
         if (vernData.results) {
           const eng = vernData.results.find((v) => v.language === 'eng' || v.language === 'en');
@@ -145,6 +174,7 @@ async function getSpeciesInfo(scientificName) {
       }
     }
 
+    _speciesInfoCache.set(_cacheKey, { result, ts: Date.now() });
     return result;
   } catch (err) {
     logger.error('GBIF species lookup failed', { error: err.message });
@@ -269,8 +299,6 @@ async function verifyWithGBIF(geminiResult, location = null) {
   const geminiBase = geminiResult.scientificName.toLowerCase().split(' ').slice(0, 2).join(' ');
   const gbifBase = (speciesInfo.canonicalName || '').toLowerCase().split(' ').slice(0, 2).join(' ');
   result.matches = geminiBase === gbifBase;
-
-  result.subspeciesList = await getSubspecies(speciesInfo.key);
 
   if (location) {
     const coords = await geocodeLocation(location);

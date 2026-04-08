@@ -1,0 +1,39 @@
+/* ── Tabs ── */
+.tab-nav {
+  display: flex;
+  border-bottom: 2px solid #b4d0a8;
+  background: linear-gradient(180deg, #eef5e6 0%, #e5f0da 100%);
+  flex-shrink: 0;
+  overflow-x: auto;
+  padding: 0 28px;
+  gap: 4px;
+}
+
+.tab-btn {
+  padding: 12px 16px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #5a7a54;
+  white-space: nowrap;
+  font-family: system-ui, sans-serif;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -2px;
+}
+
+.tab-btn:hover {
+  color: #1c3a1a;
+  background: linear-gradient(135deg, #daeeca 0%, #cce4b8 100%);
+  border-radius: 6px 6px 0 0;
+}
+
+.tab-btn--active {
+  border-bottom-color: #4a8a3a;
+  background: linear-gradient(180deg, #f5fdf0 0%, #e8f7dc 100%);
+  border-radius: 6px 6px 0 0;
+  color: #1e4a18;
+  font-weight: 700;
+}

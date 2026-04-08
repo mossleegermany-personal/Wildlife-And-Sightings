@@ -14,6 +14,9 @@ const axios = require('axios');
 const logger = require('../../../src/utils/logger');
 const EBIRD_BASE = 'https://api.ebird.org/v2';
 
+// Per-name result cache (lives for the process lifetime — taxonomy doesn't change per run).
+const _speciesCodeCache = new Map();
+
 /**
  * Look up the eBird species code for a given scientific name.
  * Uses the cached eBird taxonomy (loaded at startup).
@@ -22,32 +25,42 @@ const EBIRD_BASE = 'https://api.ebird.org/v2';
  * @returns {Promise<{found: boolean, speciesCode?: string, commonName?: string, scientificName?: string, speciesUrl?: string}>}
  */
 async function getSpeciesCode(nameInput) {
+  const cacheKey = (nameInput || '').toLowerCase().trim();
+  if (_speciesCodeCache.has(cacheKey)) return _speciesCodeCache.get(cacheKey);
+
+  let result;
   try {
     // 1. Try exact scientific name match (genus + species)
     const sciResult = await getEBirdSpeciesCode(nameInput);
     if (sciResult.found) {
-      return {
+      result = {
         found: true,
         speciesCode: sciResult.speciesCode,
         commonName: sciResult.commonName,
         scientificName: sciResult.scientificName,
         speciesUrl: `https://ebird.org/species/${sciResult.speciesCode}`,
       };
+      _speciesCodeCache.set(cacheKey, result);
+      return result;
     }
 
     // 2. Try as common name with US/UK spelling variants
     const comResult = await getEBirdSpeciesCodeByCommonName(nameInput);
     if (comResult.found) {
-      return {
+      result = {
         found: true,
         speciesCode: comResult.speciesCode,
         commonName: comResult.commonName,
         scientificName: comResult.scientificName,
         speciesUrl: `https://ebird.org/species/${comResult.speciesCode}`,
       };
+      _speciesCodeCache.set(cacheKey, result);
+      return result;
     }
 
-    return { found: false };
+    result = { found: false };
+    _speciesCodeCache.set(cacheKey, result);
+    return result;
   } catch (err) {
     logger.warn('eBird species code lookup failed', { name: nameInput, error: err.message });
     return { found: false };

@@ -9,14 +9,32 @@ const logger = require('../../../src/utils/logger');
 
 const INATURALIST_API = 'https://api.inaturalist.org/v1';
 
+// ─── Performance helpers ─────────────────────────────────────────────────────
+const PHOTO_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const _photoCache = new Map(); // normalized binomial → { result, ts }
+
+function fetchWithTimeout(url, options = {}, ms = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 /** Low-level fetch from iNaturalist taxa endpoint. */
 async function getINaturalistPhoto(scientificName) {
   try {
     const parts = scientificName.split(' ');
     const binomial = `${parts[0]} ${parts[1] || ''}`.trim();
 
+    const cacheKey = binomial.toLowerCase();
+    const cached = _photoCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < PHOTO_CACHE_TTL) {
+      logger.debug(`iNaturalist photo cache hit for "${binomial}"`);
+      return cached.result;
+    }
+
     const url = `${INATURALIST_API}/taxa?q=${encodeURIComponent(binomial)}&per_page=20`;
-    const response = await fetch(url);
+    const response = await fetchWithTimeout(url);
     const data = await response.json();
 
     if (!data.results || data.results.length === 0) return { found: false };
@@ -26,7 +44,9 @@ async function getINaturalistPhoto(scientificName) {
       const tp = (taxon.name || '').split(' ');
       const taxonBinomial = `${tp[0]} ${tp[1] || ''}`.trim().toLowerCase();
       if (taxonBinomial === binomial.toLowerCase() && taxon.default_photo) {
-        return _buildPhotoResult(taxon);
+        const hit = _buildPhotoResult(taxon);
+        _photoCache.set(cacheKey, { result: hit, ts: Date.now() });
+        return hit;
       }
     }
 
@@ -35,7 +55,9 @@ async function getINaturalistPhoto(scientificName) {
     for (const taxon of data.results) {
       const taxonGenus = (taxon.name?.split(' ')[0] || '').toLowerCase();
       if (taxonGenus === genus && taxon.default_photo) {
-        return _buildPhotoResult(taxon);
+        const hit = _buildPhotoResult(taxon);
+        _photoCache.set(cacheKey, { result: hit, ts: Date.now() });
+        return hit;
       }
     }
 
@@ -73,6 +95,30 @@ function _buildPhotoResult(taxon) {
   };
 }
 
+/** Fetch the main species photo from Wikipedia's page summary API. */
+async function getWikipediaPhoto(scientificName, commonName) {
+  const terms = [commonName, scientificName].filter(Boolean);
+  for (const term of terms) {
+    try {
+      const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(term)}`;
+      const res = await fetchWithTimeout(url, {
+        headers: { 'User-Agent': 'WildlifeSightingsBackend/1.0' },
+      }, 6000);
+      const data = await res.json();
+      if (data.thumbnail?.source) {
+        return {
+          found: true,
+          photoUrl: data.thumbnail.source.replace(/\/\d+px-/, '/400px-'),
+          source: 'Wikipedia',
+          taxonName: scientificName,
+          commonName: data.title || commonName,
+        };
+      }
+    } catch { /* try next term */ }
+  }
+  return { found: false };
+}
+
 /**
  * Get a reference species photo from iNaturalist.
  *
@@ -98,7 +144,42 @@ async function getSpeciesPhoto(scientificName) {
     };
   }
 
+  // Fallback: try Wikipedia if iNaturalist has no photo
+  logger.debug(`iNaturalist photo not found for "${binomial}", trying Wikipedia`);
+  const wikiPhoto = await getWikipediaPhoto(binomial, null);
+  if (wikiPhoto.found) return wikiPhoto;
+
   return { found: false, taxonId: null, taxonSlug: null, taxonName: null, commonName: null };
 }
 
-module.exports = { getSpeciesPhoto };
+/**
+ * Fetch the best-rated species photo from eBird's Macaulay Library CDN.
+ * URL pattern: https://cdn.download.ams.cornell.edu/api/2.0/SpeciesImages/{speciesCode}
+ * The endpoint may redirect to an image or return JSON with photo assets.
+ *
+ * @param {string} speciesCode - eBird species code e.g. 'comkin'
+ * @returns {Promise<{found: boolean, photoUrl?: string, source: string}>}
+ */
+async function getEBirdPhoto(speciesCode) {
+  if (!speciesCode) return { found: false, source: 'eBird' };
+  try {
+    // Macaulay Library search API — returns best-rated photo for a species code
+    const apiUrl = `https://search.macaulaylibrary.org/api/v1/search?taxonCode=${encodeURIComponent(speciesCode)}&mediaType=photo&count=1`;
+    const res = await fetchWithTimeout(apiUrl, {
+      headers: { 'User-Agent': 'WildlifeBot/1.0' },
+    }, 8000);
+    if (!res.ok) return { found: false, source: 'eBird' };
+
+    const json = await res.json().catch(() => null);
+    const mediaUrl = json?.results?.content?.[0]?.mediaUrl;
+    if (mediaUrl) {
+      return { found: true, photoUrl: mediaUrl, source: 'eBird' };
+    }
+
+    return { found: false, source: 'eBird' };
+  } catch {
+    return { found: false, source: 'eBird' };
+  }
+}
+
+module.exports = { getSpeciesPhoto, getEBirdPhoto };

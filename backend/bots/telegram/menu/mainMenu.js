@@ -18,6 +18,9 @@ const logger = require('../../../src/utils/logger');
 const { resolveChannelContext } = require('../utils/chatContext');
 const { startAddSightingSession }  = require('../commands/addSighting');
 const { sendSightingsCategoryMenu, sendEbirdSubmenu } = require('../commands/birdMenu/ui');
+// Pre-warm the eBird taxonomy cache when a user starts an identify session so
+// it is ready before they finish sending the photo + location.
+const { ebird: _ebirdSvc } = require('../commands/birdMenu/services');
 
 
 // chatId -> { sn, sessionId } — in-memory dedup guard for Animal Identification sessions
@@ -171,6 +174,9 @@ const CALLBACKS = {
       `<b>📷 New Identification</b>\n\nSimply <b>send me a photo</b> and I'll identify the animal in it.`,
       { parse_mode: 'HTML' }
     );
+
+    // Fire-and-forget: warm eBird taxonomy cache now so the 1st identification is instant.
+    _ebirdSvc.preloadTaxonomy().catch(() => {});
 
     setIdentifyPromptMessage(sent.chat.id, sent.message_id);
     setSessionStart(user?.id, chatId, chatTitle, chatType, sender, session.sn, session.sessionId, new Date());
